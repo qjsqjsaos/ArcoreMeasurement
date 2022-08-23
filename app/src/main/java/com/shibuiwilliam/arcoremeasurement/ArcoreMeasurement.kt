@@ -23,11 +23,9 @@ class ArcoreMeasurement : AppCompatActivity() {
         }
         toMeasurement = findViewById(R.id.to_measurement)
         toMeasurement.text = buttonArrayList[0]
-        toMeasurement.setOnClickListener(object: View.OnClickListener {
-            override fun onClick(v: View?) {
-                val intent = Intent(application, Measurement::class.java)
-                startActivity(intent)
-            }
-        })
+        toMeasurement.setOnClickListener {
+            val intent = Intent(application, Measurement::class.java)
+            startActivity(intent)
+        }
     }
 }
