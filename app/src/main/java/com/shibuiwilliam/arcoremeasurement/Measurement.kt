@@ -34,6 +34,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
     private var cubeRenderable: ModelRenderable? = null
 
+    var placed = false
+
     private val placedAnchors = ArrayList<Anchor>()
     private val placedAnchorNodes = ArrayList<AnchorNode>()
 
@@ -54,36 +56,34 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         setContentView(R.layout.activity_measurement)
 
         arFragment = supportFragmentManager.findFragmentById(R.id.sceneform_fragment) as ArFragment?
+        arFragment?.arSceneView?.scene?.addOnUpdateListener(this::onUpdateFrame)
 
         initCM = resources.getString(R.string.initCM)
 
         initRenderable()
         clearButton()
 
-        arFragment!!.setOnTapArPlaneListener { hitResult: HitResult, _: Plane?, _: MotionEvent? ->
-            if (cubeRenderable == null) return@setOnTapArPlaneListener
-
-            // 앵커가 4개 이상이면 더 이상 생성하지 않는다.
-            if(placedAnchors.size < 4) {
-                tapDistanceOfMultiplePoints(hitResult)
-            }
-        }
+//        arFragment!!.setOnTapArPlaneListener { hitResult: HitResult, _: Plane?, _: MotionEvent? ->
+//            if (cubeRenderable == null) return@setOnTapArPlaneListener
+//
+//            // 앵커가 4개 이상이면 더 이상 생성하지 않는다.
+//            if(placedAnchors.size < 4) {
+//                tapDistanceOfMultiplePoints(hitResult)
+//            }
+//        }
     }
 
     // Renderable 기본 값 세팅
     private fun initRenderable() {
-        MaterialFactory.makeTransparentWithColor(
-            this,
-            arColor(Color.RED))
+        MaterialFactory.makeOpaqueWithColor(this, arColor(Color.BLACK))
             .thenAccept { material: Material? ->
-                cubeRenderable = ShapeFactory.makeSphere(
-                    0.02f,
-                    Vector3.zero(),
-                    material)
+                //radius는 구의 크기
+                //Vector3에서 가운데 프로퍼티는 지면에서 떨어진 높이
+                cubeRenderable =
+                    ShapeFactory.makeSphere(0.025f, Vector3(0.0f, 0.02f, 0.0f), material)
                 cubeRenderable!!.isShadowCaster = false
                 cubeRenderable!!.isShadowReceiver = false
-            }
-            .exceptionally {
+            }.exceptionally {
                 val builder = AlertDialog.Builder(this)
                 builder.setMessage(it.message).setTitle("Error")
                 val dialog = builder.create()
@@ -116,6 +116,66 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                     multipleDistances[i][j]!!.text = if(i==j) "-" else initCM
                 }
             }
+        }
+    }
+
+    //앵커 갯수
+    var anchorCnt = 1
+    //계속 호출되면서 앵커를 생성 (4개)
+    private fun onUpdateFrame(frameTime: FrameTime?) {
+        val frame = arFragment!!.arSceneView.arFrame ?: return
+
+        // If there is no frame, just return.
+
+        //Making sure ARCore is tracking some feature points, makes the augmentation little stable.
+        if (frame.camera.trackingState === TrackingState.TRACKING && !placed && anchorCnt < 5) {
+
+            //위치
+            val pos: Pose?
+            // TODO: 회의실에서 이거 위치 조정하기 위치 조정 후에 범위 좁혀가기 
+            //4개의 앵커 위치 설정
+            when(anchorCnt++) {
+                1 -> {
+                    pos = frame.camera.pose.compose(Pose.makeTranslation(0.0f, -0.24f, -0.42f))
+                }
+                2 -> {
+                    pos = frame.camera.pose.compose(Pose.makeTranslation(0.0f, -0.24f, -0.42f))
+                }
+                3 -> {
+                    pos = frame.camera.pose.compose(Pose.makeTranslation(0.06f, -0.24f, -0.42f))
+                }
+                else -> {
+                    pos = frame.camera.pose.compose(Pose.makeTranslation(0.06f, -0.24f, -0.45f))
+                    placed = true //to place the arrow just once.
+                }
+            }
+
+            val anchor = arFragment!!.arSceneView.session!!.createAnchor(pos)
+            placedAnchors.add(anchor)
+            val anchorNode = AnchorNode(anchor).apply {
+                isSmoothed = true
+                setParent(arFragment!!.arSceneView.scene)
+            }
+            placedAnchorNodes.add(anchorNode)
+
+            // Create the arrow node and add it to the anchor.
+//            val arrow = Node()
+//            arrow.setParent(anchorNode)
+//            arrow.setParent(anchorNode)
+//            arrow.renderable = cubeRenderable
+
+
+            val node = TransformableNode(arFragment!!.transformationSystem)
+                .apply{
+                    this.rotationController.isEnabled = false
+                    this.scaleController.isEnabled = false
+                    this.translationController.isEnabled = true
+                    this.renderable = renderable
+                    setParent(anchorNode)
+                }
+            node.renderable = cubeRenderable
+            arFragment!!.arSceneView.scene.addChild(anchorNode)
+            node.select()
         }
     }
 
