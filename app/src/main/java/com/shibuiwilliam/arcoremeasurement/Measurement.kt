@@ -4,10 +4,12 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.app.AlertDialog
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
-import android.os.Bundle
+import android.net.Uri
+import android.os.*
 import android.util.Log
-import android.view.MotionEvent
+import android.view.PixelCopy
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.google.ar.core.*
@@ -20,6 +22,7 @@ import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.*
 import com.google.ar.sceneform.ux.ArFragment
 import com.google.ar.sceneform.ux.TransformableNode
+import java.io.IOException
 import java.util.*
 import com.google.ar.sceneform.rendering.Color as arColor
 
@@ -30,6 +33,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         private const val MIN_OPENGL_VERSION = 3.0
         private val TAG: String = Measurement::class.java.simpleName
     }
+
     private var arFragment: ArFragment? = null
 
     private var cubeRenderable: ModelRenderable? = null
@@ -39,7 +43,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
     private val placedAnchors = ArrayList<Anchor>()
     private val placedAnchorNodes = ArrayList<AnchorNode>()
 
-    private val multipleDistances = Array(Constants.maxNumMultiplePoints
+    private val multipleDistances = Array(
+        Constants.maxNumMultiplePoints
     ) { Array<TextView?>(Constants.maxNumMultiplePoints) { null } }
 
     private lateinit var initCM: String
@@ -93,62 +98,116 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
     }
 
     // TODO: 이거 원래 상태로 바꿀것
-    private fun clearButton(){
+    private fun clearButton() {
         clearButton = findViewById(R.id.clearButton)
 //        clearButton.setOnClickListener { clearAllAnchors() }
         clearButton.setOnClickListener {
-            drawLine(placedAnchorNodes[0], placedAnchorNodes[1])
+            takePhoto()
         }
     }
 
-    private fun clearAllAnchors(){
+    private fun clearAllAnchors() {
         placedAnchors.clear()
-        for (anchorNode in placedAnchorNodes){
+        for (anchorNode in placedAnchorNodes) {
             arFragment!!.arSceneView.scene.removeChild(anchorNode)
             anchorNode.isEnabled = false
             anchorNode.anchor!!.detach()
             anchorNode.setParent(null)
         }
         placedAnchorNodes.clear()
-        for (i in 0 until Constants.maxNumMultiplePoints){
-            for (j in 0 until Constants.maxNumMultiplePoints){
-                if (multipleDistances[i][j] != null){
-                    multipleDistances[i][j]!!.text = if(i==j) "-" else initCM
+        for (i in 0 until Constants.maxNumMultiplePoints) {
+            for (j in 0 until Constants.maxNumMultiplePoints) {
+                if (multipleDistances[i][j] != null) {
+                    multipleDistances[i][j]!!.text = if (i == j) "-" else initCM
                 }
             }
         }
     }
 
+    //캡쳐
+    private fun takePhoto() {
+        val view = arFragment!!.arSceneView
+
+        // Create a bitmap the size of the scene view.
+        val bitmap = Bitmap.createBitmap(
+            view.width, view.height,
+            Bitmap.Config.ARGB_8888
+        )
+
+        // Create a handler thread to offload the processing of the image.
+        val handlerThread = HandlerThread("PixelCopier")
+        handlerThread.start()
+        // Make the request to copy.
+        PixelCopy.request(view, bitmap, { copyResult ->
+            if (copyResult === PixelCopy.SUCCESS) {
+                try {
+                    saveBitmapToDisk(bitmap)
+                } catch (e: IOException) {
+                    val toast: Toast = Toast.makeText(
+                        this@Measurement, e.toString(),
+                        Toast.LENGTH_LONG
+                    )
+                    toast.show()
+                    return@request
+                }
+            } else {
+            }
+            handlerThread.quitSafely()
+        }, android.os.Handler(Looper.myLooper()!!))
+    }
+
+
+    @Throws(IOException::class)
+    fun saveBitmapToDisk(bitmap: Bitmap) {
+        convertUri(bitmap, true)
+    }
+
+    fun convertUri(bitmap: Bitmap, isSave: Boolean): Uri?
+            = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        Constants.getImageUri(this, bitmap)!!
+    } else {
+        Constants.getImageUriQ(this, bitmap, isSave)
+    }
+
     //앵커 갯수
     var anchorCnt = 1
+
     //계속 호출되면서 앵커를 생성 (4개)
     private fun onUpdateFrame(frameTime: FrameTime?) {
+
         val frame = arFragment!!.arSceneView.arFrame ?: return
 
         // If there is no frame, just return.
 
         //Making sure ARCore is tracking some feature points, makes the augmentation little stable.
-        if (frame.camera.trackingState === TrackingState.TRACKING && !placed && anchorCnt < 5) {
+        if (frame.camera.trackingState === TrackingState.TRACKING) {
+
+            val cameraPose = frame.camera.pose.extractRotation()
 
             //위치
             val pos: Pose?
-            // TODO: 회의실에서 이거 위치 조정하기 위치 조정 후에 범위 좁혀가기 
+            // TODO: 회의실에서 이거 위치 조정하기 위치 조정 후에 범위 좁혀가기
             //4개의 앵커 위치 설정
-            when(anchorCnt++) {
+            when (anchorCnt++) {
                 1 -> {
-                    pos = frame.camera.pose.compose(Pose.makeTranslation(0.0f, -0.24f, -0.42f))
+                    pos = cameraPose.compose(Pose.makeTranslation(0f,0f,-2f))
                 }
                 2 -> {
-                    pos = frame.camera.pose.compose(Pose.makeTranslation(0.0f, -0.24f, -0.42f))
+                    pos = cameraPose.compose(Pose.makeTranslation(0f,0f,-2f))
                 }
                 3 -> {
-                    pos = frame.camera.pose.compose(Pose.makeTranslation(0.06f, -0.24f, -0.42f))
+                    pos = cameraPose.compose(Pose.makeTranslation(0f,0f,-2f))
+                }
+                4 -> {
+                    pos = cameraPose.compose(Pose.makeTranslation(0f,0f,-2f))
                 }
                 else -> {
-                    pos = frame.camera.pose.compose(Pose.makeTranslation(0.06f, -0.24f, -0.45f))
-                    placed = true //to place the arrow just once.
+                    clearAllAnchors()
+                    anchorCnt = 1
+                    return
                 }
             }
+
 
             val anchor = arFragment!!.arSceneView.session!!.createAnchor(pos)
             placedAnchors.add(anchor)
@@ -166,7 +225,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
 
             val node = TransformableNode(arFragment!!.transformationSystem)
-                .apply{
+                .apply {
                     this.rotationController.isEnabled = false
                     this.scaleController.isEnabled = false
                     this.translationController.isEnabled = true
@@ -179,8 +238,10 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         }
     }
 
-    private fun placeAnchor(hitResult: HitResult,
-                            renderable: Renderable){
+    private fun placeAnchor(
+        hitResult: HitResult,
+        renderable: Renderable
+    ) {
         val anchor = hitResult.createAnchor()
         placedAnchors.add(anchor)
 
@@ -191,7 +252,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         placedAnchorNodes.add(anchorNode)
 
         val node = TransformableNode(arFragment!!.transformationSystem)
-            .apply{
+            .apply {
                 this.rotationController.isEnabled = false
                 this.scaleController.isEnabled = false
                 this.translationController.isEnabled = true
@@ -204,8 +265,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         node.select()
     }
 
-    private fun tapDistanceOfMultiplePoints(hitResult: HitResult){
-        if (placedAnchorNodes.size >= Constants.maxNumMultiplePoints){
+    private fun tapDistanceOfMultiplePoints(hitResult: HitResult) {
+        if (placedAnchorNodes.size >= Constants.maxNumMultiplePoints) {
             clearAllAnchors()
         }
 
@@ -229,15 +290,19 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
     private fun checkIsSupportedDeviceOrFinish(activity: Activity): Boolean {
         val openGlVersionString =
-            (Objects.requireNonNull(activity
-                .getSystemService(Context.ACTIVITY_SERVICE)) as ActivityManager)
+            (Objects.requireNonNull(
+                activity
+                    .getSystemService(Context.ACTIVITY_SERVICE)
+            ) as ActivityManager)
                 .deviceConfigurationInfo
                 .glEsVersion
         if (openGlVersionString.toDouble() < MIN_OPENGL_VERSION) {
             Log.e(TAG, "Sceneform requires OpenGL ES $MIN_OPENGL_VERSION later")
-            Toast.makeText(activity,
+            Toast.makeText(
+                activity,
                 "Sceneform requires OpenGL ES $MIN_OPENGL_VERSION or later",
-                Toast.LENGTH_LONG)
+                Toast.LENGTH_LONG
+            )
                 .show()
             activity.finish()
             return false
