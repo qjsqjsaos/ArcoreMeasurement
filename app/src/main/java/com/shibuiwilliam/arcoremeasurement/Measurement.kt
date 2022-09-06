@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.*
+import android.util.DisplayMetrics
 import android.util.Log
 import android.view.PixelCopy
 import android.view.View
@@ -24,6 +25,8 @@ import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.*
 import com.google.ar.sceneform.ux.ArFragment
 import com.google.ar.sceneform.ux.TransformableNode
+import com.shibuiwilliam.arcoremeasurement.TwoDCoverter.calculateWorld2CameraMatrix
+import com.shibuiwilliam.arcoremeasurement.TwoDCoverter.world2Screen
 import java.io.IOException
 import java.util.*
 import com.google.ar.sceneform.rendering.Color as arColor
@@ -68,12 +71,30 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
         arFragment?.arSceneView?.scene?.addOnUpdateListener(this@Measurement::onUpdateFrame)
 
-
-
         initCM = resources.getString(R.string.initCM)
 
         initRenderable()
         clearButton()
+
+        //수직에 plane 그려지는거 막기
+        val config = arFragment?.arSceneView?.session?.config
+        config?.planeFindingMode = Config.PlaneFindingMode.DISABLED
+        arFragment?.arSceneView?.session?.configure(config)
+
+
+        //plane 그려지는 속도 향상
+        arFragment?.planeDiscoveryController?.hide()
+        arFragment?.planeDiscoveryController?.setInstructionView(null)
+
+        findViewById<Button>(R.id.get_location).setOnClickListener {
+//            //pose 위치 실시간 정보
+//            Toast.makeText(this@Measurement, placedAnchorNodes[0].anchor?.pose.toString(), Toast.LENGTH_SHORT).show()
+            getAnchor2D(placedAnchorNodes[0].anchor?.pose!!)
+            getAnchor2D(placedAnchorNodes[1].anchor?.pose!!)
+            getAnchor2D(placedAnchorNodes[2].anchor?.pose!!)
+            getAnchor2D(placedAnchorNodes[3].anchor?.pose!!)
+        }
+
 
 //        arFragment!!.setOnTapArPlaneListener { hitResult: HitResult, _: Plane?, _: MotionEvent? ->
 //            if (cubeRenderable == null) return@setOnTapArPlaneListener
@@ -83,6 +104,39 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 //                tapDistanceOfMultiplePoints(hitResult)
 //            }
 //        }
+    }
+
+    //2D 좌표 가져오기
+    private fun getAnchor2D(pose: Pose) {
+        val displayMetrics = DisplayMetrics()
+        windowManager.defaultDisplay.getMetrics(displayMetrics)
+        val height = displayMetrics.heightPixels
+        val width = displayMetrics.widthPixels
+
+        val camera = arFragment!!.arSceneView.arFrame?.camera
+        // Get projection matrix.
+
+        // Get projection matrix.
+        val projmtx = FloatArray(16)
+        camera?.getProjectionMatrix(projmtx, 0, 0.1f, 100.0f)
+
+        // Get camera matrix and draw.
+
+        // Get camera matrix and draw.
+        val viewmtx = FloatArray(16)
+        camera?.getViewMatrix(viewmtx, 0)
+
+        val anchorMatrix = FloatArray(16)
+        pose.toMatrix(anchorMatrix, 0)
+        val world2screenMatrix: FloatArray =
+            calculateWorld2CameraMatrix(anchorMatrix, viewmtx, projmtx)!!
+        val anchor2d: DoubleArray = world2Screen(width, height, world2screenMatrix)!!
+
+        anchor2d.forEach {
+            //2d 화면 좌표
+            Log.d("anchor2d : ", it.toString())
+        }
+//        Toast.makeText(this@Measurement, anchor_2d.toString(), Toast.LENGTH_SHORT).show()
     }
 
     // Renderable 기본 값 세팅
@@ -134,117 +188,6 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         }
     }
 
-    //캡쳐
-    private fun takePhoto() {
-        val view = arFragment!!.arSceneView
-
-        // Create a bitmap the size of the scene view.
-        val bitmap = Bitmap.createBitmap(
-            view.width, view.height,
-            Bitmap.Config.ARGB_8888
-        )
-
-        // Create a handler thread to offload the processing of the image.
-        val handlerThread = HandlerThread("PixelCopier")
-        handlerThread.start()
-        // Make the request to copy.
-        PixelCopy.request(view, bitmap, { copyResult ->
-            if (copyResult === PixelCopy.SUCCESS) {
-                try {
-                    saveBitmapToDisk(bitmap)
-                } catch (e: IOException) {
-                    val toast: Toast = Toast.makeText(
-                        this@Measurement, e.toString(),
-                        Toast.LENGTH_LONG
-                    )
-                    toast.show()
-                    return@request
-                }
-            } else {
-            }
-            handlerThread.quitSafely()
-        }, android.os.Handler(Looper.myLooper()!!))
-    }
-
-
-    @Throws(IOException::class)
-    fun saveBitmapToDisk(bitmap: Bitmap) {
-        convertUri(bitmap, true)
-    }
-
-    fun convertUri(bitmap: Bitmap, isSave: Boolean): Uri?
-            = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-        Constants.getImageUri(this, bitmap)!!
-    } else {
-        Constants.getImageUriQ(this, bitmap, isSave)
-    }
-
-
-    //계속 호출되면서 앵커를 생성 (4개)
-//    private fun onUpdateFrame(frameTime: FrameTime?) {
-//
-//        val frame = arFragment!!.arSceneView.arFrame ?: return
-//
-//        // If there is no frame, just return.
-//
-//        //Making sure ARCore is tracking some feature points, makes the augmentation little stable.
-//        if (frame.camera.trackingState === TrackingState.TRACKING) {
-//
-//            val cameraPose = frame.camera.pose.extractRotation()
-//
-//            //위치
-//            val pos: Pose?
-//            // TODO: 회의실에서 이거 위치 조정하기 위치 조정 후에 범위 좁혀가기
-//            //4개의 앵커 위치 설정
-//            when (anchorCnt++) {
-//                1 -> {
-//                    pos = cameraPose.compose(Pose.makeTranslation(0f,0f,-2f))
-//                }
-//                2 -> {
-//                    pos = cameraPose.compose(Pose.makeTranslation(0f,0f,-2f))
-//                }
-//                3 -> {
-//                    pos = cameraPose.compose(Pose.makeTranslation(0f,0f,-2f))
-//                }
-//                4 -> {
-//                    pos = cameraPose.compose(Pose.makeTranslation(0f,0f,-2f))
-//                }
-//                else -> {
-////                    clearAllAnchors()
-//                    anchorCnt = 1
-//                    return
-//                }
-//            }
-//
-//
-//            val anchor = arFragment!!.arSceneView.session!!.createAnchor(pos)
-//            placedAnchors.add(anchor)
-//            val anchorNode = AnchorNode(anchor).apply {
-//                isSmoothed = true
-//                setParent(arFragment!!.arSceneView.scene)
-//            }
-//            placedAnchorNodes.add(anchorNode)
-//
-//            // Create the arrow node and add it to the anchor.
-////            val arrow = Node()
-////            arrow.setParent(anchorNode)
-////            arrow.setParent(anchorNode)
-////            arrow.renderable = cubeRenderable
-//
-//
-//            val node = TransformableNode(arFragment!!.transformationSystem)
-//                .apply {
-//                    this.rotationController.isEnabled = false
-//                    this.scaleController.isEnabled = false
-//                    this.translationController.isEnabled = true
-//                    this.renderable = renderable
-//                    setParent(anchorNode)
-//                }
-//            node.renderable = cubeRenderable
-//            arFragment!!.arSceneView.scene.addChild(anchorNode)
-//            node.select()
-//        }
-//    }
 
     private var transformableNode: TransformableNode? = null
     //앵커 갯수
@@ -365,10 +308,6 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 }
             }
         }
-    }
-
-    private fun beforeHasNode(anchorCnt: Int) {
-
     }
 
     private fun moveRenderable(
