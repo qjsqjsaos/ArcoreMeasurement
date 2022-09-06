@@ -31,6 +31,12 @@
             android:textColor="@android:color/white"
             android:textSize="14sp" />
 
+        <Button
+            android:id="@+id/get_location"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="위치 가져오기" />
+
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

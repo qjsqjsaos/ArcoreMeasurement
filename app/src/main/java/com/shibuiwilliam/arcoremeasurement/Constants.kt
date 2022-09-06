@@ -10,12 +10,11 @@ import androidx.annotation.RequiresApi
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 
-object Constants{
+object Constants {
     const val maxNumMultiplePoints = 6
     const val multipleDistanceTableHeight = 300
 
     const val arrowViewSize = 45
-
 
 
     // Convert the bitmap to uri
