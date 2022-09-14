@@ -1,17 +1,21 @@
-package com.shibuiwilliam.arcoremeasurement
+package com.shibuiwilliam.arcoremeasurement.measurement
 
 import android.app.Activity
 import android.app.ActivityManager
-import android.app.AlertDialog
 import android.content.Context
-import android.graphics.Color
+import android.graphics.Bitmap
 import android.os.*
 import android.util.DisplayMetrics
 import android.util.Log
+import android.view.PixelCopy
 import android.view.View
+import android.view.WindowManager
 import android.widget.*
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.ar.core.*
 import com.google.ar.sceneform.AnchorNode
 import com.google.ar.sceneform.FrameTime
@@ -22,15 +26,22 @@ import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.*
 import com.google.ar.sceneform.ux.ArFragment
 import com.google.ar.sceneform.ux.TransformableNode
+import com.shibuiwilliam.arcoremeasurement.R
 import com.shibuiwilliam.arcoremeasurement.TwoDCoverter.calculateWorld2CameraMatrix
 import com.shibuiwilliam.arcoremeasurement.TwoDCoverter.world2Screen
+import com.shibuiwilliam.arcoremeasurement.databinding.ActivityMeasurementBinding
+import com.shibuiwilliam.arcoremeasurement.measurement.state.CaptureState
+import com.shibuiwilliam.arcoremeasurement.measurement.state.ErrorType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.IOException
 import java.util.*
-import com.google.ar.sceneform.rendering.Color as arColor
 
 
 class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
+
+    private val vm: MeasurementViewModel by viewModels()
 
     companion object {
         private const val MIN_OPENGL_VERSION = 3.0
@@ -44,22 +55,15 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
     //앵커 갯수 표시
     private var anchorCnt = 0
 
-
     //앵커 클리어 이후 딜레이 불리언
     private var isPlay = false
 
     private val placedAnchors = ArrayList<Anchor>()
     private val placedAnchorNodes = ArrayList<AnchorNode>()
 
-    private val multipleDistances = Array(
-        Constants.maxNumMultiplePoints
-    ) { Array<TextView?>(Constants.maxNumMultiplePoints) { null } }
-
-    private lateinit var initCM: String
-
     private lateinit var clearButton: Button
 
-    private var mediateMode = false
+    private lateinit var binding: ActivityMeasurementBinding
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,14 +71,13 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             Toast.makeText(applicationContext, "Device not supported", Toast.LENGTH_LONG)
                 .show()
         }
+        binding = ActivityMeasurementBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-        setContentView(R.layout.activity_measurement)
 
-        arFragment = supportFragmentManager.findFragmentById(R.id.sceneform_fragment) as ArFragment?
+        arFragment = supportFragmentManager.findFragmentById(R.id.ar_fragment) as ArFragment?
 
-        arFragment?.arSceneView?.scene?.addOnUpdateListener(this@Measurement::onUpdateFrame)
-
-        initCM = resources.getString(R.string.initCM)
+        arFragment?.arSceneView?.scene?.addOnUpdateListener(this@Measurement::onUpdate)
 
         clearButton()
 
@@ -88,20 +91,112 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         arFragment?.planeDiscoveryController?.hide()
         arFragment?.planeDiscoveryController?.setInstructionView(null)
 
-        findViewById<Button>(R.id.get_location).setOnClickListener {
+        binding.getLocation.setOnClickListener {
 //            //pose 위치 실시간 정보
 //            Toast.makeText(this@Measurement, placedAnchorNodes[0].anchor?.pose.toString(), Toast.LENGTH_SHORT).show()
-            getAnchor2D(placedAnchorNodes[0].anchor?.pose!!)
-            getAnchor2D(placedAnchorNodes[1].anchor?.pose!!)
-            getAnchor2D(placedAnchorNodes[2].anchor?.pose!!)
-            getAnchor2D(placedAnchorNodes[3].anchor?.pose!!)
+//            getAnchor2D(placedAnchorNodes[0].anchor?.pose!!)
+//            getAnchor2D(placedAnchorNodes[1].anchor?.pose!!)
+//            getAnchor2D(placedAnchorNodes[2].anchor?.pose!!)
+//            getAnchor2D(placedAnchorNodes[3].anchor?.pose!!)
+            takePhoto()
+        }
+
+        collecter()
+    }
+
+    private fun collecter() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch(Dispatchers.Main) {
+                    vm.captureState.collect {
+                        when(it) {
+                            is CaptureState.Success<*> -> {
+                                //변환된 사진을 받아옵니다.
+                                binding.result.visibility = View.VISIBLE
+                                binding.linearLayout.visibility = View.GONE
+
+                                binding.result.setImageBitmap(it.data as Bitmap)
+                                binding.loadingBar.visibility = View.GONE
+                            }
+                            is CaptureState.Failure -> {
+                                messageByType(it.type)
+                                binding.loadingBar.visibility = View.GONE
+                            }
+                            is CaptureState.Loading -> {
+                                binding.loadingBar.visibility = View.VISIBLE
+                            }
+                            else -> {
+                            } // default
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    //타입 별 message 띄우기
+    private fun messageByType(type: ErrorType?) {
+        val message = when (type) {
+            ErrorType.NO_CONTOUR -> "윤곽이 보이지 않습니다."
+            ErrorType.TOO_SMALL -> "테두리가 너무 작습니다."
+            ErrorType.NO_BORDER_DETECTION -> "테두리가 감지 되지 않습니다."
+            ErrorType.IS_CONVEX -> ""
+            ErrorType.OPENCV_INIT_FAILED -> "초기화에 실패하였습니다."
+            else -> ""
+        }
+        Toast.makeText(this, message + "다시 촬영해주세요.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun takePhoto() {
+        val view = arFragment!!.arSceneView
+
+        // Create a bitmap the size of the scene view.
+        val bitmap: Bitmap = Bitmap.createBitmap(
+            view.width, view.height,
+            Bitmap.Config.ARGB_8888
+        )
+
+        // Create a handler thread to offload the processing of the image.
+        val handlerThread = HandlerThread("PixelCopier")
+        handlerThread.start()
+        // Make the request to copy.
+        PixelCopy.request(view, bitmap, { copyResult ->
+            if (copyResult === PixelCopy.SUCCESS) {
+                try {
+                    perspective(bitmap)
+                } catch (e: IOException) {
+                    val toast: Toast = Toast.makeText(
+                        this@Measurement, e.toString(),
+                        Toast.LENGTH_LONG
+                    )
+                    toast.show()
+                    return@request
+                }
+            } else {
+            }
+            handlerThread.quitSafely()
+        }, Handler(handlerThread.looper))
+    }
+
+    private fun perspective(bitmap: Bitmap) {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                vm.getImage(bitmap)
+            }
         }
     }
 
     //2D 좌표 가져오기
     private fun getAnchor2D(pose: Pose) {
         val displayMetrics = DisplayMetrics()
-        windowManager.defaultDisplay.getMetrics(displayMetrics)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getSystemService(WindowManager::class.java).currentWindowMetrics
+        } else {
+            @Suppress("DEPRECATION")
+            val display = windowManager.defaultDisplay
+            @Suppress("DEPRECATION")
+            display.getMetrics(displayMetrics)
+        }
         val height = displayMetrics.heightPixels
         val width = displayMetrics.widthPixels
 
@@ -131,10 +226,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 //        Toast.makeText(this@Measurement, anchor_2d.toString(), Toast.LENGTH_SHORT).show()
     }
 
-    // TODO: 이거 원래 상태로 바꿀것
     private fun clearButton() {
-        clearButton = findViewById(R.id.clearButton)
-        clearButton.setOnClickListener {
+        binding.clearButton.setOnClickListener {
             clearAllAnchors()
             anchorCnt = 0
             isPlay = true
@@ -150,19 +243,73 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             anchorNode.setParent(null)
         }
         placedAnchorNodes.clear()
-        for (i in 0 until Constants.maxNumMultiplePoints) {
-            for (j in 0 until Constants.maxNumMultiplePoints) {
-                if (multipleDistances[i][j] != null) {
-                    multipleDistances[i][j]!!.text = if (i == j) "-" else initCM
-                }
-            }
-        }
     }
 
     private var transformableNode: TransformableNode? = null
 
-    fun onUpdateFrame(frameTime: FrameTime?) {
+    private fun moveRenderable(
+        markAnchorNodeToMove: AnchorNode?,
+        newPoseToMoveTo: Pose,
+        index: Int
+    ): AnchorNode? {
+        //Move a renderable to a new pose
+        if (markAnchorNodeToMove != null) {
+            arFragment!!.arSceneView.scene.removeChild(markAnchorNodeToMove)
+            placedAnchorNodes.remove(markAnchorNodeToMove)
+        } else {
+            return null
+        }
+        val session = arFragment!!.arSceneView.session
+        val markAnchor = session!!.createAnchor(newPoseToMoveTo.extractTranslation())
+        val newMarkAnchorNode = AnchorNode(markAnchor).apply {
+            isSmoothed = true
+        }
+        cubeRenderable?.apply {
+            isShadowCaster = false
+            isShadowReceiver = false
+        }
+        newMarkAnchorNode.renderable = cubeRenderable
+        newMarkAnchorNode.setParent(arFragment!!.arSceneView.scene)
+        placedAnchorNodes.add(index, newMarkAnchorNode)
 
+        //Delete the line if it is drawn
+        removeLine(transformableNode!!)
+        return newMarkAnchorNode
+    }
+
+    private fun removeLine(lineToRemove: Node) {
+        arFragment!!.arSceneView.scene.removeChild(lineToRemove)
+        lineToRemove.setParent(null)
+    }
+
+    private fun screenCenter(): Vector3 {
+        val vw = findViewById<View>(android.R.id.content)
+        return Vector3(vw.width / 2f, vw.height / 2f, 0f)
+    }
+
+    private fun checkIsSupportedDeviceOrFinish(activity: Activity): Boolean {
+        val openGlVersionString =
+            (Objects.requireNonNull(
+                activity
+                    .getSystemService(Context.ACTIVITY_SERVICE)
+            ) as ActivityManager)
+                .deviceConfigurationInfo
+                .glEsVersion
+        if (openGlVersionString.toDouble() < MIN_OPENGL_VERSION) {
+            Log.e(TAG, "Sceneform requires OpenGL ES $MIN_OPENGL_VERSION later")
+            Toast.makeText(
+                activity,
+                "Sceneform requires OpenGL ES $MIN_OPENGL_VERSION or later",
+                Toast.LENGTH_LONG
+            )
+                .show()
+            activity.finish()
+            return false
+        }
+        return true
+    }
+
+    override fun onUpdate(ft: FrameTime?) {
         lifecycleScope.launch {
             if(isPlay) {
                 //1.5초 이후 실행
@@ -190,7 +337,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                             //place the first object only if no previous anchors were added
                             if(!iterableAnchor.hasNext()) {
                                 //Perform a hit test at the center of the screen to place an object without tapping
-                                val hitTest = frame.hitTest(frame.screenCenter().x, frame.screenCenter().y)
+                                val hitTest = frame.hitTest(screenCenter().x, screenCenter().y)
 
                                 //iterate through all hits
                                 val hitTestIterator = hitTest.iterator()
@@ -235,6 +382,10 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                                         this.rotationController.isEnabled = false
                                         this.scaleController.isEnabled = false
                                         this.translationController.isEnabled = true
+                                        cubeRenderable?.apply {
+                                            isShadowCaster = false
+                                            isShadowReceiver = false
+                                        }
                                         renderable = this@Measurement.cubeRenderable
                                         setParent(anchorNode)
                                     }
@@ -252,122 +403,6 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 }
             }
         }
-    }
-
-    private fun moveRenderable(
-        markAnchorNodeToMove: AnchorNode?,
-        newPoseToMoveTo: Pose,
-        index: Int
-    ): AnchorNode? {
-        //Move a renderable to a new pose
-        if (markAnchorNodeToMove != null) {
-            arFragment!!.arSceneView.scene.removeChild(markAnchorNodeToMove)
-            placedAnchorNodes.remove(markAnchorNodeToMove)
-        } else {
-            return null
-        }
-        val frame = arFragment!!.arSceneView.arFrame
-        val session = arFragment!!.arSceneView.session
-        val markAnchor = session!!.createAnchor(newPoseToMoveTo.extractTranslation())
-        val newMarkAnchorNode = AnchorNode(markAnchor)
-        newMarkAnchorNode.renderable = cubeRenderable
-        newMarkAnchorNode.setParent(arFragment!!.arSceneView.scene)
-        placedAnchorNodes.add(index, newMarkAnchorNode)
-
-        //Delete the line if it is drawn
-        removeLine(transformableNode!!)
-        return newMarkAnchorNode
-    }
-
-    private fun removeLine(lineToRemove: Node) {
-        //remove the line
-        var lineToRemove: Node? = lineToRemove
-        if (lineToRemove != null) {
-            arFragment!!.arSceneView.scene.removeChild(lineToRemove)
-            lineToRemove.setParent(null)
-            lineToRemove = null
-        }
-    }
-
-    private fun Frame.screenCenter(): Vector3 {
-        val vw = findViewById<View>(android.R.id.content)
-        return Vector3(vw.width / 2f, vw.height / 2f, 0f)
-    }
-
-    private fun placeAnchor(
-        hitResult: HitResult,
-        renderable: Renderable
-    ) {
-        val anchor = hitResult.createAnchor()
-        placedAnchors.add(anchor)
-
-        val anchorNode = AnchorNode(anchor).apply {
-            isSmoothed = true
-            setParent(arFragment!!.arSceneView.scene)
-        }
-        placedAnchorNodes.add(anchorNode)
-
-        val node = TransformableNode(arFragment!!.transformationSystem)
-            .apply {
-                this.rotationController.isEnabled = false
-                this.scaleController.isEnabled = false
-                this.translationController.isEnabled = true
-                this.renderable = renderable
-                setParent(anchorNode)
-            }
-
-        arFragment!!.arSceneView.scene.addOnUpdateListener(this)
-        arFragment!!.arSceneView.scene.addChild(anchorNode)
-        node.select()
-    }
-
-    private fun tapDistanceOfMultiplePoints(hitResult: HitResult) {
-        if (placedAnchorNodes.size >= Constants.maxNumMultiplePoints) {
-            clearAllAnchors()
-        }
-
-        MaterialFactory.makeOpaqueWithColor(this, arColor(Color.BLACK))
-            .thenAccept { material: Material? ->
-                //radius는 구의 크기
-                //Vector3에서 가운데 프로퍼티는 지면에서 떨어진 높이
-                cubeRenderable =
-                    ShapeFactory.makeSphere(0.025f, Vector3(0.0f, 0.02f, 0.0f), material)
-                cubeRenderable!!.isShadowCaster = false
-                cubeRenderable!!.isShadowReceiver = false
-                placeAnchor(hitResult, cubeRenderable!!)
-            }.exceptionally {
-                val builder = AlertDialog.Builder(this)
-                builder.setMessage(it.message).setTitle("Error")
-                val dialog = builder.create()
-                dialog.show()
-                return@exceptionally null
-            }
-    }
-
-    private fun checkIsSupportedDeviceOrFinish(activity: Activity): Boolean {
-        val openGlVersionString =
-            (Objects.requireNonNull(
-                activity
-                    .getSystemService(Context.ACTIVITY_SERVICE)
-            ) as ActivityManager)
-                .deviceConfigurationInfo
-                .glEsVersion
-        if (openGlVersionString.toDouble() < MIN_OPENGL_VERSION) {
-            Log.e(TAG, "Sceneform requires OpenGL ES $MIN_OPENGL_VERSION later")
-            Toast.makeText(
-                activity,
-                "Sceneform requires OpenGL ES $MIN_OPENGL_VERSION or later",
-                Toast.LENGTH_LONG
-            )
-                .show()
-            activity.finish()
-            return false
-        }
-        return true
-    }
-
-    override fun onUpdate(ft: FrameTime?) {
-        //앵커가 생긴 이후로 계속 호출
     }
 
     // 줄 생성
