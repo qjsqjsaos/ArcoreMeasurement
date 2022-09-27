@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.media.ExifInterface
+import android.net.Uri
 import android.os.*
 import android.util.DisplayMetrics
 import android.util.Log
@@ -13,6 +15,7 @@ import android.view.WindowManager
 import android.widget.*
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -21,6 +24,7 @@ import com.google.ar.sceneform.AnchorNode
 import com.google.ar.sceneform.FrameTime
 import com.google.ar.sceneform.Node
 import com.google.ar.sceneform.Scene
+import com.google.ar.sceneform.collision.Ray
 import com.google.ar.sceneform.math.Quaternion
 import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.*
@@ -35,6 +39,7 @@ import com.shibuiwilliam.arcoremeasurement.measurement.state.ErrorType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.util.*
 
@@ -77,7 +82,10 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
         arFragment = supportFragmentManager.findFragmentById(R.id.ar_fragment) as ArFragment?
 
-        arFragment?.arSceneView?.scene?.addOnUpdateListener(this@Measurement::onUpdate)
+//        arFragment?.arSceneView?.scene?.addOnUpdateListener(this@Measurement::onUpdate)
+        arFragment?.arSceneView?.scene?.addOnUpdateListener {
+            addWaterMark()
+        }
 
         clearButton()
 
@@ -101,7 +109,55 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             takePhoto()
         }
 
-        collecter()
+//        collecter()
+    }
+
+    private var oldWaterMark : Node? = null
+
+    private fun addWaterMark() {
+        MaterialFactory.makeTransparentWithColor(
+            this,
+            Color(android.graphics.Color.RED)
+        )
+            .thenAccept { material: Material? ->
+                cubeRenderable = ShapeFactory.makeSphere(
+                    0.02f,
+                    Vector3.zero(),
+                    material)
+                cubeRenderable!!.isShadowCaster = false
+                cubeRenderable!!.isShadowReceiver = false
+                addNode(material)
+            }
+            .exceptionally {
+                Toast.makeText(this@Measurement, "Error", Toast.LENGTH_SHORT).show()
+                return@exceptionally null
+            }
+
+    }
+
+    private fun addNode(model: Material?) {
+        if(oldWaterMark!=null){
+            arFragment?.arSceneView?.scene?.removeChild(oldWaterMark)
+        }
+        model?.let {
+            val node = Node().apply {
+                setParent(arFragment?.arSceneView?.scene)
+                var camera = arFragment?.arSceneView?.scene?.camera
+
+                var ray = camera?.screenPointToRay(200f,500f)
+
+                // var local=arSceneView.getScene().getCamera().localPosition
+
+                localPosition = ray?.getPoint(1f)
+                localRotation = arFragment?.arSceneView?.scene?.camera?.localRotation
+                localScale = Vector3(0.3f, 0.3f, 0.3f)
+
+                renderable = cubeRenderable
+            }
+
+            arFragment?.arSceneView?.scene?.addChild(node)
+            oldWaterMark = node
+        }
     }
 
     private fun collecter() {
@@ -109,7 +165,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch(Dispatchers.Main) {
                     vm.captureState.collect {
-                        when(it) {
+                        when (it) {
                             is CaptureState.Success<*> -> {
                                 //변환된 사진을 받아옵니다.
                                 binding.result.visibility = View.VISIBLE
@@ -183,6 +239,27 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.getImage(bitmap)
             }
+        }
+    }
+
+    //이미지 실제 사이즈 가져오기
+    fun getImageWidthAndHeight(context: Context, uri: Uri): Pair<Float, Float> {
+        val exif = try {
+            context.contentResolver.openInputStream(uri)?.let {
+                ExifInterface(it)
+            } ?: return 0f to 0f
+        } catch (e: FileNotFoundException) {
+            return 0f to 0f
+        }
+
+        val width = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, 0).toFloat()
+        val height = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, 0).toFloat()
+
+        return when (
+            exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        ) {
+            ExifInterface.ORIENTATION_ROTATE_90, ExifInterface.ORIENTATION_ROTATE_270 -> height to width
+            else -> width to height
         }
     }
 
@@ -268,6 +345,10 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             isShadowCaster = false
             isShadowReceiver = false
         }
+
+
+
+
         newMarkAnchorNode.renderable = cubeRenderable
         newMarkAnchorNode.setParent(arFragment!!.arSceneView.scene)
         placedAnchorNodes.add(index, newMarkAnchorNode)
@@ -311,7 +392,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
     override fun onUpdate(ft: FrameTime?) {
         lifecycleScope.launch {
-            if(isPlay) {
+            if (isPlay) {
                 //1.5초 이후 실행
                 delay(1500L)
                 isPlay = false
@@ -322,7 +403,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 if (frame != null) {
                     //get the trackables to ensure planes are detected
                     val var3 = frame.getUpdatedTrackables(Plane::class.java).iterator()
-                    while(var3.hasNext()) {
+                    while (var3.hasNext()) {
                         val plane = var3.next() as Plane
 
                         //If a plane has been detected & is being tracked by ARCore
@@ -335,30 +416,38 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                             val iterableAnchor = frame.updatedAnchors.iterator()
 
                             //place the first object only if no previous anchors were added
-                            if(!iterableAnchor.hasNext()) {
+                            if (!iterableAnchor.hasNext()) {
                                 //Perform a hit test at the center of the screen to place an object without tapping
                                 val hitTest = frame.hitTest(screenCenter().x, screenCenter().y)
 
                                 //iterate through all hits
                                 val hitTestIterator = hitTest.iterator()
-                                while(hitTestIterator.hasNext()) {
+                                while (hitTestIterator.hasNext()) {
                                     val hitResult = hitTestIterator.next()
 
                                     //placedAnchorNodes가 4개가 되었을때
-                                    if(anchorCnt == 4) {
+                                    if (anchorCnt == 4) {
                                         hitResult.hitPose.apply {
-                                            val tx = tx()
-                                            val ty = ty()
-                                            val tz = tz()
-                                            val first = Pose.makeTranslation(tx + -.3f,ty + 0f,tz + -.47f)
-                                            val second = Pose.makeTranslation(tx + .3f,ty + 0f,tz + -.47f)
-                                            val third = Pose.makeTranslation(tx + -.3f,ty + 0f,tz + .3f)
-                                            val four = Pose.makeTranslation(tx + .3f,ty + 0f,tz + .3f)
+                                            val first =
+                                                Pose.makeTranslation(tx() + -.3f, ty() + 0f, tz() + -.47f)
+                                            val second =
+                                                Pose.makeTranslation(tx() + .3f, ty() + 0f, tz() + -.47f)
+                                            val third =
+                                                Pose.makeTranslation(tx() + -.3f, ty() + 0f, tz() + .3f)
+                                            val four =
+                                                Pose.makeTranslation(tx() + .3f, ty() + 0f, tz() + .3f)
 
-                                            placedAnchorNodes[0] = moveRenderable(placedAnchorNodes[0], first, 0)!!
-                                            placedAnchorNodes[1] = moveRenderable(placedAnchorNodes[1], second, 1)!!
-                                            placedAnchorNodes[2] = moveRenderable(placedAnchorNodes[2], third, 2)!!
-                                            placedAnchorNodes[3] = moveRenderable(placedAnchorNodes[3], four, 3)!!
+
+                                            placedAnchorNodes[0] =
+                                                moveRenderable(placedAnchorNodes[0], first, 0)!!
+                                            placedAnchorNodes[1] =
+                                                moveRenderable(placedAnchorNodes[1], second, 1)!!
+                                            placedAnchorNodes[2] =
+                                                moveRenderable(placedAnchorNodes[2], third, 2)!!
+                                            placedAnchorNodes[3] =
+                                                moveRenderable(placedAnchorNodes[3], four, 3)!!
+
+
                                             drawLine(placedAnchorNodes[0], placedAnchorNodes[1])
                                             drawLine(placedAnchorNodes[1], placedAnchorNodes[3])
                                             drawLine(placedAnchorNodes[3], placedAnchorNodes[2])
@@ -378,22 +467,31 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                                     }
                                     placedAnchorNodes.add(anchorNode)
                                     //create a new TranformableNode that will carry our object
-                                    transformableNode = TransformableNode(arFragment?.transformationSystem).apply {
-                                        this.rotationController.isEnabled = false
-                                        this.scaleController.isEnabled = false
-                                        this.translationController.isEnabled = true
-                                        cubeRenderable?.apply {
-                                            isShadowCaster = false
-                                            isShadowReceiver = false
+                                    transformableNode =
+                                        TransformableNode(arFragment?.transformationSystem).apply {
+                                            this.rotationController.isEnabled = false
+                                            this.scaleController.isEnabled = false
+                                            this.translationController.isEnabled = true
+                                            cubeRenderable?.apply {
+                                                isShadowCaster = false
+                                                isShadowReceiver = false
+                                            }
+                                            renderable = this@Measurement.cubeRenderable
+                                            setParent(anchorNode)
                                         }
-                                        renderable = this@Measurement.cubeRenderable
-                                        setParent(anchorNode)
-                                    }
 
                                     //Alter the real world position to ensure object renders on the table top. Not somewhere inside.
-                                    transformableNode?.worldPosition = Vector3(modelAnchor.pose.tx(),
-                                        modelAnchor.pose.compose(Pose.makeTranslation(0f, 0.05f, 0f)).ty(),
-                                        modelAnchor.pose.tz())
+                                    transformableNode?.worldPosition = Vector3(
+                                        modelAnchor.pose.tx(),
+                                        modelAnchor.pose.compose(
+                                            Pose.makeTranslation(
+                                                0f,
+                                                0.05f,
+                                                0f
+                                            )
+                                        ).ty(),
+                                        modelAnchor.pose.tz()
+                                    )
 
                                     anchorCnt++
                                 }
@@ -418,18 +516,21 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         val directionFromTopToBottom = difference.normalized()
         val rotationFromAToB = Quaternion.lookRotation(directionFromTopToBottom, Vector3.up())
         MaterialFactory.makeOpaqueWithColor(
-            applicationContext,
-            com.google.ar.sceneform.rendering.Color(0F, 0F, 0F)
+            applicationContext, Color(0F, 0F, 0F)
         )
             .thenAccept { material: Material? ->
                 val model = ShapeFactory.makeCube(
-                    Vector3(.01f, .01f, difference.length()),
+                    Vector3(.01f, .0001f, difference.length()),
                     Vector3.zero(), material
                 )
                 val nodeForLine = Node()
                 nodeForLine.setParent(node1)
+                model?.apply {
+                    isShadowCaster = false
+                    isShadowReceiver = false
+                }
                 nodeForLine.renderable = model
-                nodeForLine.worldPosition = Vector3.add(point1, point2).scaled(.5f)
+                nodeForLine.worldPosition = Vector3.add(point1, point2).scaled(.495f)
                 nodeForLine.worldRotation = rotationFromAToB
             }
     }

@@ -109,12 +109,11 @@ class MeasurementViewModel(application: Application)  : AndroidViewModel(applica
                 Point(approxCandidate.get(2, 0)[0], approxCandidate.get(2, 0)[1]),
                 Point(approxCandidate.get(3, 0)[0], approxCandidate.get(3, 0)[1]),
             )
-            Log.d("points[0] : ", points[0].toString())
-            Log.d("points[1] : ", points[1].toString())
-            Log.d("points[2] : ", points[2].toString())
-            Log.d("points[3] : ", points[3].toString())
+//            Log.d("points[0] : ", points[0].toString())
+//            Log.d("points[1] : ", points[1].toString())
+//            Log.d("points[2] : ", points[2].toString())
+//            Log.d("points[3] : ", points[3].toString())
 
-            // TODO: 포인트 값 얻어와서 renderable에서 어떤 POSE값 얻는지 비교 후 적용하기 
             points.sortBy { it.x } // x좌표 기준으로 먼저 정렬
 
             if (points[0].y > points[1].y) {
