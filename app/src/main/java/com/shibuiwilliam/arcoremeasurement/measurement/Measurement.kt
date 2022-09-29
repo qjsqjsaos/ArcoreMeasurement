@@ -15,7 +15,6 @@ import android.view.WindowManager
 import android.widget.*
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -24,7 +23,6 @@ import com.google.ar.sceneform.AnchorNode
 import com.google.ar.sceneform.FrameTime
 import com.google.ar.sceneform.Node
 import com.google.ar.sceneform.Scene
-import com.google.ar.sceneform.collision.Ray
 import com.google.ar.sceneform.math.Quaternion
 import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.*
@@ -82,10 +80,10 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
         arFragment = supportFragmentManager.findFragmentById(R.id.ar_fragment) as ArFragment?
 
-//        arFragment?.arSceneView?.scene?.addOnUpdateListener(this@Measurement::onUpdate)
-        arFragment?.arSceneView?.scene?.addOnUpdateListener {
-            addWaterMark()
-        }
+        arFragment?.arSceneView?.scene?.addOnUpdateListener(this@Measurement::onUpdate)
+//        arFragment?.arSceneView?.scene?.addOnUpdateListener {
+//            addWaterMark()
+//        }
 
         clearButton()
 
@@ -112,7 +110,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 //        collecter()
     }
 
-    private var oldWaterMark : Node? = null
+    private var oldWaterMark: Node? = null
 
     private fun addWaterMark() {
         MaterialFactory.makeTransparentWithColor(
@@ -123,10 +121,11 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 cubeRenderable = ShapeFactory.makeSphere(
                     0.02f,
                     Vector3.zero(),
-                    material)
+                    material
+                )
                 cubeRenderable!!.isShadowCaster = false
                 cubeRenderable!!.isShadowReceiver = false
-                addNode(material)
+//                addNode(material, model)
             }
             .exceptionally {
                 Toast.makeText(this@Measurement, "Error", Toast.LENGTH_SHORT).show()
@@ -135,29 +134,23 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
     }
 
-    private fun addNode(model: Material?) {
-        if(oldWaterMark!=null){
-            arFragment?.arSceneView?.scene?.removeChild(oldWaterMark)
+
+    private fun addNode(model: ModelRenderable): Node {
+        val node = Node().apply {
+            setParent(arFragment?.arSceneView?.scene)
+            var camera = arFragment?.arSceneView?.scene?.camera
+
+            var ray = camera?.screenPointToRay(200f, 500f)
+
+            // var local=arSceneView.getScene().getCamera().localPosition
+
+            localPosition = ray?.getPoint(0.5f)
+            localRotation = arFragment?.arSceneView?.scene?.camera?.localRotation
+            localScale = Vector3(0.3f, 0.3f, 0.3f)
+
+            renderable = model
         }
-        model?.let {
-            val node = Node().apply {
-                setParent(arFragment?.arSceneView?.scene)
-                var camera = arFragment?.arSceneView?.scene?.camera
-
-                var ray = camera?.screenPointToRay(200f,500f)
-
-                // var local=arSceneView.getScene().getCamera().localPosition
-
-                localPosition = ray?.getPoint(1f)
-                localRotation = arFragment?.arSceneView?.scene?.camera?.localRotation
-                localScale = Vector3(0.3f, 0.3f, 0.3f)
-
-                renderable = cubeRenderable
-            }
-
-            arFragment?.arSceneView?.scene?.addChild(node)
-            oldWaterMark = node
-        }
+        return node
     }
 
     private fun collecter() {
@@ -346,9 +339,6 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             isShadowReceiver = false
         }
 
-
-
-
         newMarkAnchorNode.renderable = cubeRenderable
         newMarkAnchorNode.setParent(arFragment!!.arSceneView.scene)
         placedAnchorNodes.add(index, newMarkAnchorNode)
@@ -429,13 +419,29 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                                     if (anchorCnt == 4) {
                                         hitResult.hitPose.apply {
                                             val first =
-                                                Pose.makeTranslation(tx() + -.3f, ty() + 0f, tz() + -.47f)
+                                                Pose.makeTranslation(
+                                                    tx() + -.3f,
+                                                    ty() + 0f,
+                                                    tz() + -.47f
+                                                )
                                             val second =
-                                                Pose.makeTranslation(tx() + .3f, ty() + 0f, tz() + -.47f)
+                                                Pose.makeTranslation(
+                                                    tx() + .3f,
+                                                    ty() + 0f,
+                                                    tz() + -.47f
+                                                )
                                             val third =
-                                                Pose.makeTranslation(tx() + -.3f, ty() + 0f, tz() + .3f)
+                                                Pose.makeTranslation(
+                                                    tx() + -.3f,
+                                                    ty() + 0f,
+                                                    tz() + .3f
+                                                )
                                             val four =
-                                                Pose.makeTranslation(tx() + .3f, ty() + 0f, tz() + .3f)
+                                                Pose.makeTranslation(
+                                                    tx() + .3f,
+                                                    ty() + 0f,
+                                                    tz() + .3f
+                                                )
 
 
                                             placedAnchorNodes[0] =
@@ -465,6 +471,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                                         isSmoothed = true
                                         setParent(arFragment?.arSceneView?.scene)
                                     }
+
                                     placedAnchorNodes.add(anchorNode)
                                     //create a new TranformableNode that will carry our object
                                     transformableNode =
@@ -503,11 +510,13 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         }
     }
 
+    var beforeNode: Node? = null
+
     // 줄 생성
     private fun drawLine(node1: AnchorNode, node2: AnchorNode) {
         //Draw a line between two AnchorNodes (adapted from https://stackoverflow.com/a/52816504/334402)
-        val point1: Vector3 = node1.worldPosition
-        val point2: Vector3 = node2.worldPosition
+        val point1: Vector3 = node1.localPosition
+        val point2: Vector3 = node2.localPosition
 
 
         //First, find the vector extending between the two points and define a look rotation
@@ -519,19 +528,29 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             applicationContext, Color(0F, 0F, 0F)
         )
             .thenAccept { material: Material? ->
+
+                //사각형 모델
                 val model = ShapeFactory.makeCube(
                     Vector3(.01f, .0001f, difference.length()),
                     Vector3.zero(), material
-                )
-                val nodeForLine = Node()
-                nodeForLine.setParent(node1)
-                model?.apply {
-                    isShadowCaster = false
-                    isShadowReceiver = false
+                ).also {
+                    it.isShadowCaster = false
+                    it.isShadowReceiver = false
                 }
-                nodeForLine.renderable = model
-                nodeForLine.worldPosition = Vector3.add(point1, point2).scaled(.495f)
-                nodeForLine.worldRotation = rotationFromAToB
+
+                if(beforeNode != null) beforeNode?.setParent(null)
+
+
+                beforeNode = Node().apply {
+                    var camera = arFragment?.arSceneView?.scene?.camera
+                    var ray = camera?.screenPointToRay(200f, 500f)
+                    setParent(arFragment?.arSceneView?.scene)
+
+                    localPosition = ray?.getPoint(1f)
+                    localRotation = rotationFromAToB
+                    renderable = model
+                }
+//                addNode(model)
             }
     }
 }
