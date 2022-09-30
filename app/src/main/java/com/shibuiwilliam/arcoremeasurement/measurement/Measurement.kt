@@ -454,10 +454,10 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                                                 moveRenderable(placedAnchorNodes[3], four, 3)!!
 
 
-                                            drawLine(placedAnchorNodes[0], placedAnchorNodes[1])
-                                            drawLine(placedAnchorNodes[1], placedAnchorNodes[3])
-                                            drawLine(placedAnchorNodes[3], placedAnchorNodes[2])
-                                            drawLine(placedAnchorNodes[2], placedAnchorNodes[0])
+                                            drawLine(placedAnchorNodes[0], placedAnchorNodes[1], 1)
+                                            drawLine(placedAnchorNodes[1], placedAnchorNodes[3], 2)
+                                            drawLine(placedAnchorNodes[3], placedAnchorNodes[2], 3)
+                                            drawLine(placedAnchorNodes[2], placedAnchorNodes[0], 4)
                                         }
                                         return@launch
                                     }
@@ -510,10 +510,14 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         }
     }
 
-    var beforeNode: Node? = null
+    var beforeNode1: Node? = null
+    var beforeNode2: Node? = null
+    var beforeNode3: Node? = null
+    var beforeNode4: Node? = null
+
 
     // 줄 생성
-    private fun drawLine(node1: AnchorNode, node2: AnchorNode) {
+    private fun drawLine(node1: AnchorNode, node2: AnchorNode, order: Int) {
         //Draw a line between two AnchorNodes (adapted from https://stackoverflow.com/a/52816504/334402)
         val point1: Vector3 = node1.localPosition
         val point2: Vector3 = node2.localPosition
@@ -522,10 +526,27 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         //First, find the vector extending between the two points and define a look rotation
         //in terms of this Vector.
         val difference = Vector3.subtract(point1, point2)
-        val directionFromTopToBottom = difference.normalized()
-        val rotationFromAToB = Quaternion.lookRotation(directionFromTopToBottom, Vector3.up())
+//        val directionFromTopToBottom = difference.normalized()
+//        val rotationFromAToB = Quaternion.lookRotation(directionFromTopToBottom, Vector3.up())
+
+        var color: Color
+        color = when(order) {
+            1 -> {
+                Color(255f, 0f, 0f) //빨간색
+            }
+            2 -> {
+                Color(0f, 84f, 255f) //파란색
+            }
+            3 -> {
+                Color(29f, 219f, 22f) //초록색
+            }
+            else -> {
+                Color(0F, 0F, 0F) //검은색
+            }
+        }
+
         MaterialFactory.makeOpaqueWithColor(
-            applicationContext, Color(0F, 0F, 0F)
+            applicationContext, color
         )
             .thenAccept { material: Material? ->
 
@@ -538,19 +559,38 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                     it.isShadowReceiver = false
                 }
 
-                if(beforeNode != null) beforeNode?.setParent(null)
-
-
-                beforeNode = Node().apply {
+                val node = SooyeolNode(arFragment?.transformationSystem!!).apply {
                     var camera = arFragment?.arSceneView?.scene?.camera
-                    var ray = camera?.screenPointToRay(200f, 500f)
+                    var ray = camera?.screenPointToRay(500f, 500f) //x y 좌표 추후에 디바이스 가로세로 길이 구해 넣어주기
                     setParent(arFragment?.arSceneView?.scene)
 
-                    localPosition = ray?.getPoint(1f)
-                    localRotation = rotationFromAToB
+                    localPosition = ray?.getPoint(.4f)
+                    //ray?.getPoint(.5f)
+//                    Vector3.add(point1, point2).scaled(.495f)
+//                    localRotation = rotationFromAToB
                     renderable = model
                 }
-//                addNode(model)
+
+                when(order) {
+                    1 -> {
+                        if(beforeNode1 != null) beforeNode1?.setParent(null)
+                        beforeNode1 = node
+                    }
+                    2 -> {
+                        if(beforeNode2 != null) beforeNode2?.setParent(null)
+                        beforeNode2 = node
+                    }
+                    3 -> {
+                        if(beforeNode3 != null) beforeNode3?.setParent(null)
+                        beforeNode3 = node
+                    }
+                    else -> {
+                        if(beforeNode4 != null) beforeNode4?.setParent(null)
+                        beforeNode4 = node
+                    }
+                }
+
+
             }
     }
 }
