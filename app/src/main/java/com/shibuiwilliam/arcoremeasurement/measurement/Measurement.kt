@@ -420,27 +420,27 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                                         hitResult.hitPose.apply {
                                             val first =
                                                 Pose.makeTranslation(
-                                                    tx() + -.3f,
+                                                    tx() + -.6f,
                                                     ty() + 0f,
-                                                    tz() + -.47f
+                                                    tz() + .6f
                                                 )
                                             val second =
                                                 Pose.makeTranslation(
-                                                    tx() + .3f,
+                                                    tx() + -.6f,
                                                     ty() + 0f,
-                                                    tz() + -.47f
-                                                )
+                                                    tz() + .6f
+                                                ) //파란색
                                             val third =
                                                 Pose.makeTranslation(
-                                                    tx() + -.3f,
+                                                    tx() + -.6f,
                                                     ty() + 0f,
-                                                    tz() + .3f
+                                                    tz() + .6f
                                                 )
                                             val four =
                                                 Pose.makeTranslation(
-                                                    tx() + .3f,
+                                                    tx() + -.6f,
                                                     ty() + 0f,
-                                                    tz() + .3f
+                                                    tz() + .6f
                                                 )
 
 
@@ -454,10 +454,11 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                                                 moveRenderable(placedAnchorNodes[3], four, 3)!!
 
 
-                                            drawLine(placedAnchorNodes[0], placedAnchorNodes[1], 1)
-                                            drawLine(placedAnchorNodes[1], placedAnchorNodes[3], 2)
-                                            drawLine(placedAnchorNodes[3], placedAnchorNodes[2], 3)
-                                            drawLine(placedAnchorNodes[2], placedAnchorNodes[0], 4)
+                                            drawPoint(placedAnchorNodes[0], 1)
+                                            drawPoint(placedAnchorNodes[1], 2)
+                                            drawPoint(placedAnchorNodes[2], 3)
+                                            drawPoint(placedAnchorNodes[3], 4)
+
                                         }
                                         return@launch
                                     }
@@ -515,22 +516,10 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
     var beforeNode3: Node? = null
     var beforeNode4: Node? = null
 
+    //선을 잇는 점 생성
+    private fun drawPoint(node1: AnchorNode, order: Int) {
 
-    // 줄 생성
-    private fun drawLine(node1: AnchorNode, node2: AnchorNode, order: Int) {
-        //Draw a line between two AnchorNodes (adapted from https://stackoverflow.com/a/52816504/334402)
-        val point1: Vector3 = node1.localPosition
-        val point2: Vector3 = node2.localPosition
-
-
-        //First, find the vector extending between the two points and define a look rotation
-        //in terms of this Vector.
-        val difference = Vector3.subtract(point1, point2)
-//        val directionFromTopToBottom = difference.normalized()
-//        val rotationFromAToB = Quaternion.lookRotation(directionFromTopToBottom, Vector3.up())
-
-        var color: Color
-        color = when(order) {
+        val color: Color = when(order) {
             1 -> {
                 Color(255f, 0f, 0f) //빨간색
             }
@@ -551,9 +540,10 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             .thenAccept { material: Material? ->
 
                 //사각형 모델
-                val model = ShapeFactory.makeCube(
-                    Vector3(.01f, .0001f, difference.length()),
-                    Vector3.zero(), material
+                val model = ShapeFactory.makeSphere(
+                    0.02f,
+                    Vector3.zero(),
+                    material
                 ).also {
                     it.isShadowCaster = false
                     it.isShadowReceiver = false
@@ -561,13 +551,14 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
                 val node = SooyeolNode(arFragment?.transformationSystem!!).apply {
                     var camera = arFragment?.arSceneView?.scene?.camera
-                    var ray = camera?.screenPointToRay(500f, 500f) //x y 좌표 추후에 디바이스 가로세로 길이 구해 넣어주기
-                    setParent(arFragment?.arSceneView?.scene)
+                    var ray = camera?.screenPointToRay(250f, 250f) //x y 좌표 추후에 디바이스 가로세로 길이 구해 넣어주기
+                    setParent(camera)
 
-                    localPosition = ray?.getPoint(.4f)
+                    worldPosition = ray?.getPoint(.5f)
                     //ray?.getPoint(.5f)
 //                    Vector3.add(point1, point2).scaled(.495f)
 //                    localRotation = rotationFromAToB
+
                     renderable = model
                 }
 
@@ -591,6 +582,43 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 }
 
 
+            }
+    }
+
+
+    // 줄 생성
+    private fun drawLine(node1: AnchorNode, node2: AnchorNode) {
+        //Draw a line between two AnchorNodes (adapted from https://stackoverflow.com/a/52816504/334402)
+        Log.d(TAG, "drawLine")
+        val point1: Vector3 = node1.worldPosition
+        val point2: Vector3 = node2.worldPosition
+
+
+        //First, find the vector extending between the two points and define a look rotation
+        //in terms of this Vector.
+        val difference = Vector3.subtract(point1, point2)
+        val directionFromTopToBottom = difference.normalized()
+        val rotationFromAToB = Quaternion.lookRotation(directionFromTopToBottom, Vector3.up())
+        MaterialFactory.makeOpaqueWithColor(applicationContext, Color(0f, 255f, 244f))
+            .thenAccept { material: Material? ->
+                /* Then, create a rectangular prism, using ShapeFactory.makeCube() and use the difference vector
+               to extend to the necessary length.  */Log.d(
+                TAG,
+                "drawLine insie .thenAccept"
+            )
+                val model = ShapeFactory.makeCube(
+                    Vector3(.01f, .01f, difference.length()),
+                    Vector3.zero(), material
+                )
+                /* Last, set the world rotation of the node to the rotation calculated earlier and set the world position to
+           the midpoint between the given points . */
+                val lineAnchor = node2.anchor
+                val nodeForLine = Node().apply {
+                    setParent(node1)
+                    renderable = model
+                    worldPosition = Vector3.add(point1, point2).scaled(.5f)
+                    worldRotation = rotationFromAToB
+                }
             }
     }
 }
