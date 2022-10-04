@@ -6,13 +6,17 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.media.ExifInterface
 import android.net.Uri
-import android.os.*
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.PixelCopy
 import android.view.View
 import android.view.WindowManager
-import android.widget.*
+import android.widget.Button
+import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
@@ -418,46 +422,46 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                                     //placedAnchorNodes가 4개가 되었을때
                                     if (anchorCnt == 4) {
                                         hitResult.hitPose.apply {
-                                            val first =
-                                                Pose.makeTranslation(
-                                                    tx() + -.6f,
-                                                    ty() + 0f,
-                                                    tz() + .6f
-                                                )
-                                            val second =
-                                                Pose.makeTranslation(
-                                                    tx() + -.6f,
-                                                    ty() + 0f,
-                                                    tz() + .6f
-                                                ) //파란색
-                                            val third =
-                                                Pose.makeTranslation(
-                                                    tx() + -.6f,
-                                                    ty() + 0f,
-                                                    tz() + .6f
-                                                )
-                                            val four =
-                                                Pose.makeTranslation(
-                                                    tx() + -.6f,
-                                                    ty() + 0f,
-                                                    tz() + .6f
-                                                )
+//                                            val first =
+//                                                Pose.makeTranslation(
+//                                                    tx() + -.6f,
+//                                                    ty() + 0f,
+//                                                    tz() + .6f
+//                                                )
+//                                            val second =
+//                                                Pose.makeTranslation(
+//                                                    tx() + -.6f,
+//                                                    ty() + 0f,
+//                                                    tz() + .6f
+//                                                ) //파란색
+//                                            val third =
+//                                                Pose.makeTranslation(
+//                                                    tx() + -.6f,
+//                                                    ty() + 0f,
+//                                                    tz() + .6f
+//                                                )
+//                                            val four =
+//                                                Pose.makeTranslation(
+//                                                    tx() + -.6f,
+//                                                    ty() + 0f,
+//                                                    tz() + .6f
+//                                                )
+//
+//
+//                                            placedAnchorNodes[0] =
+//                                                moveRenderable(placedAnchorNodes[0], first, 0)!!
+//                                            placedAnchorNodes[1] =
+//                                                moveRenderable(placedAnchorNodes[1], second, 1)!!
+//                                            placedAnchorNodes[2] =
+//                                                moveRenderable(placedAnchorNodes[2], third, 2)!!
+//                                            placedAnchorNodes[3] =
+//                                                moveRenderable(placedAnchorNodes[3], four, 3)!!
 
+                                            drawPoint(1, 150f, 150f, plane, this) //빨간색
+                                            drawPoint(2, 950f, 150f, plane, this) //파란색
+                                            drawPoint(3, 150f, 2100f, plane, this) //하얀색
+                                            drawPoint(4, 950f, 2100f, plane, this) //검은색
 
-                                            placedAnchorNodes[0] =
-                                                moveRenderable(placedAnchorNodes[0], first, 0)!!
-                                            placedAnchorNodes[1] =
-                                                moveRenderable(placedAnchorNodes[1], second, 1)!!
-                                            placedAnchorNodes[2] =
-                                                moveRenderable(placedAnchorNodes[2], third, 2)!!
-                                            placedAnchorNodes[3] =
-                                                moveRenderable(placedAnchorNodes[3], four, 3)!!
-
-
-                                            drawPoint(placedAnchorNodes[0], 1)
-                                            drawPoint(placedAnchorNodes[1], 2)
-                                            drawPoint(placedAnchorNodes[2], 3)
-                                            drawPoint(placedAnchorNodes[3], 4)
 
                                         }
                                         return@launch
@@ -511,83 +515,87 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         }
     }
 
-    var beforeNode1: Node? = null
-    var beforeNode2: Node? = null
-    var beforeNode3: Node? = null
-    var beforeNode4: Node? = null
+    private var beforePointNode1: Node? = null
+    private var beforePointNode2: Node? = null
+    private var beforePointNode3: Node? = null
+    private var beforePointNode4: Node? = null
 
-    //선을 잇는 점 생성
-    private fun drawPoint(node1: AnchorNode, order: Int) {
+    //선을 잇는 점(포인트) 생성
+    private fun drawPoint(order: Int, rayParam1: Float, rayParam2: Float, plane: Plane, pose: Pose) {
 
-        val color: Color = when(order) {
-            1 -> {
-                Color(255f, 0f, 0f) //빨간색
-            }
-            2 -> {
-                Color(0f, 84f, 255f) //파란색
-            }
-            3 -> {
-                Color(29f, 219f, 22f) //초록색
-            }
-            else -> {
-                Color(0F, 0F, 0F) //검은색
-            }
+        val arCamera = arFragment?.arSceneView?.scene?.camera
+
+        val cameraPos: Vector3 = arCamera?.worldPosition!!
+        val cameraForward = Vector3.add(cameraPos, arCamera.forward.scaled(1.0f))
+        var forwardVector = Vector3.subtract(cameraForward, cameraPos)
+        forwardVector = Vector3(forwardVector.x, 0f, forwardVector.z).normalized()
+
+        var degreesFromCamToNegZAxis =
+            Vector3.angleBetweenVectors(Vector3.forward(), forwardVector).toDouble()
+        val dotProduct = Vector3.dot(Vector3.right(), forwardVector)
+        if (dotProduct < 0) {
+            degreesFromCamToNegZAxis = -degreesFromCamToNegZAxis
         }
 
-        MaterialFactory.makeOpaqueWithColor(
-            applicationContext, color
-        )
-            .thenAccept { material: Material? ->
+//        Log.d("각도", degreesFromCamToNegZAxis.toString())
 
-                //사각형 모델
-                val model = ShapeFactory.makeSphere(
-                    0.02f,
-                    Vector3.zero(),
-                    material
-                ).also {
-                    it.isShadowCaster = false
-                    it.isShadowReceiver = false
-                }
+//        if node.eulerAngles.x < 0 {
+//            node.eulerAngles.x = -.pi / 2
+//            node.eulerAngles.z = 0
+//        } else {
+//            node.eulerAngles.x = .pi / 2
+//            node.eulerAngles.z = -.pi
+//        }
+        Log.d("센터포즈", degreesFromCamToNegZAxis.toString())
 
-                val node = SooyeolNode(arFragment?.transformationSystem!!).apply {
-                    var camera = arFragment?.arSceneView?.scene?.camera
-                    var ray = camera?.screenPointToRay(250f, 250f) //x y 좌표 추후에 디바이스 가로세로 길이 구해 넣어주기
-                    setParent(camera)
+        val node = Node().apply {
+            var camera = arFragment?.arSceneView?.scene?.camera
+            var ray =
+                camera?.screenPointToRay(rayParam1, rayParam2) //x y 좌표 추후에 디바이스 가로세로 길이 구해 넣어주기
+            setParent(arFragment?.arSceneView?.scene)
 
-                    worldPosition = ray?.getPoint(.5f)
-                    //ray?.getPoint(.5f)
-//                    Vector3.add(point1, point2).scaled(.495f)
-//                    localRotation = rotationFromAToB
+            //자연스럽게 움직이면 아래것을 setParent
+//                    setParent(arFragment?.arSceneView?.scene)
+            //고정되게 움직이게 하려면 아래것
+//                    setParent(camera)
+            worldPosition = ray?.getPoint(.5f)
+            // TODO: 현재 렌더러블 회전하는 법 찾아서 넣을것 필요시 plane의 값에따라 조건식을 넣어도 될거 같음.
+            localRotation = Quaternion.axisAngle(Vector3(pose.qx(), pose.qy(), pose.qz()), pose.qw())
+        }
 
-                    renderable = model
-                }
-
-                when(order) {
-                    1 -> {
-                        if(beforeNode1 != null) beforeNode1?.setParent(null)
-                        beforeNode1 = node
-                    }
-                    2 -> {
-                        if(beforeNode2 != null) beforeNode2?.setParent(null)
-                        beforeNode2 = node
-                    }
-                    3 -> {
-                        if(beforeNode3 != null) beforeNode3?.setParent(null)
-                        beforeNode3 = node
-                    }
-                    else -> {
-                        if(beforeNode4 != null) beforeNode4?.setParent(null)
-                        beforeNode4 = node
-                    }
-                }
-
-
+        when (order) {
+            1 -> {
+                if (beforePointNode1 != null) beforePointNode1?.setParent(null)
+                beforePointNode1 = node
             }
+            2 -> {
+                if (beforePointNode2 != null) beforePointNode2?.setParent(null)
+                beforePointNode2 = node
+            }
+            3 -> {
+                if (beforePointNode3 != null) beforePointNode3?.setParent(null)
+                beforePointNode3 = node
+            }
+            else -> {
+                if (beforePointNode4 != null) beforePointNode4?.setParent(null)
+                beforePointNode4 = node
+
+
+                drawLine(beforePointNode1!!, beforePointNode2!!, 1)
+                drawLine(beforePointNode2!!, beforePointNode4!!, 2)
+                drawLine(beforePointNode4!!, beforePointNode3!!, 3)
+                drawLine(beforePointNode3!!, beforePointNode1!!, 4)
+            }
+        }
     }
 
+    var beforeLineNode1: Node? = null
+    var beforeLineNode2: Node? = null
+    var beforeLineNode3: Node? = null
+    var beforeLineNode4: Node? = null
 
     // 줄 생성
-    private fun drawLine(node1: AnchorNode, node2: AnchorNode) {
+    private fun drawLine(node1: Node, node2: Node, order: Int) {
         //Draw a line between two AnchorNodes (adapted from https://stackoverflow.com/a/52816504/334402)
         Log.d(TAG, "drawLine")
         val point1: Vector3 = node1.worldPosition
@@ -599,7 +607,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         val difference = Vector3.subtract(point1, point2)
         val directionFromTopToBottom = difference.normalized()
         val rotationFromAToB = Quaternion.lookRotation(directionFromTopToBottom, Vector3.up())
-        MaterialFactory.makeOpaqueWithColor(applicationContext, Color(0f, 255f, 244f))
+        MaterialFactory.makeOpaqueWithColor(applicationContext, Color(0f, 0f, 0f))
             .thenAccept { material: Material? ->
                 /* Then, create a rectangular prism, using ShapeFactory.makeCube() and use the difference vector
                to extend to the necessary length.  */Log.d(
@@ -607,17 +615,38 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 "drawLine insie .thenAccept"
             )
                 val model = ShapeFactory.makeCube(
-                    Vector3(.01f, .01f, difference.length()),
+                    Vector3(.01f, .0001f, difference.length()),
                     Vector3.zero(), material
-                )
+                ).also {
+                    it.isShadowCaster = false
+                    it.isShadowReceiver = false
+                }
                 /* Last, set the world rotation of the node to the rotation calculated earlier and set the world position to
            the midpoint between the given points . */
-                val lineAnchor = node2.anchor
-                val nodeForLine = Node().apply {
-                    setParent(node1)
+                val node = Node().apply {
+                    setParent(arFragment?.arSceneView?.scene)
                     renderable = model
-                    worldPosition = Vector3.add(point1, point2).scaled(.5f)
+                    worldPosition = Vector3.add(point1, point2).scaled(.488f)
                     worldRotation = rotationFromAToB
+                }
+
+                when (order) {
+                    1 -> {
+                        if (beforeLineNode1 != null) beforeLineNode1?.setParent(null)
+                        beforeLineNode1 = node
+                    }
+                    2 -> {
+                        if (beforeLineNode2 != null) beforeLineNode2?.setParent(null)
+                        beforeLineNode2 = node
+                    }
+                    3 -> {
+                        if (beforeLineNode3 != null) beforeLineNode3?.setParent(null)
+                        beforeLineNode3 = node
+                    }
+                    else -> {
+                        if (beforeLineNode4 != null) beforeLineNode4?.setParent(null)
+                        beforeLineNode4 = node
+                    }
                 }
             }
     }

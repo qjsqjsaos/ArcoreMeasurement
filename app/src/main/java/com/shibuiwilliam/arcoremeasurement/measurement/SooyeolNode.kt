@@ -18,13 +18,19 @@ class SooyeolNode(
         // Buggy when dragging because TranslationController already handles it's own rotation on each update.
         if (isTransforming) return /*Prevent infinite loop*/
         val camera = scene?.camera ?: return
-        val direction = Vector3.subtract(camera.worldPosition, worldPosition)
-        worldRotation = Quaternion.lookRotation(direction, Vector3.up())
+//        val direction = Vector3.subtract(camera.worldPosition, worldPosition)
+//        worldRotation = Quaternion.lookRotation(direction, Vector3.up())
+
+
+        val q1: Quaternion = localRotation
+        val q2 = Quaternion.axisAngle(Vector3(0f, 1f, 0f), -2f)
+        localRotation = Quaternion.multiply(q1, q2)
+        localPosition = localPosition
 
 //        //이거 검토해볼것
-        val q1: Quaternion = localRotation
-        val q2 = Quaternion.axisAngle(Vector3(1f, 0f, 0f), -2f)
-        worldRotation = Quaternion.multiply(q1, q2)
+//        val q1: Quaternion = localRotation
+//        val q2 = Quaternion.axisAngle(Vector3(1f, 0f, 0f), -2f)
+//        worldRotation = Quaternion.multiply(q1, q2)
 
 //        val q1: Quaternion = localRotation
 //        val q2 = Quaternion.axisAngle(Vector3(1f, 0f, 0f), 2f)
