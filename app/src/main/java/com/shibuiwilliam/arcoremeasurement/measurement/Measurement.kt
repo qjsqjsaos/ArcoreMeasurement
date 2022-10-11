@@ -10,10 +10,8 @@ import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import com.google.ar.core.*
-import com.google.ar.sceneform.AnchorNode
-import com.google.ar.sceneform.FrameTime
-import com.google.ar.sceneform.Node
-import com.google.ar.sceneform.Scene
+import com.google.ar.core.Camera
+import com.google.ar.sceneform.*
 import com.google.ar.sceneform.math.Quaternion
 import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.*
@@ -120,6 +118,20 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         return true
     }
 
+    private fun onClear() {
+        val children: List<Node> = ArrayList(arFragment?.arSceneView?.scene?.children)
+        for (node in children) {
+            if (node is AnchorNode) {
+                if (node.anchor != null) {
+                    node.anchor!!.detach()
+                }
+            }
+            if (node !is Camera && node !is Sun) {
+                node.setParent(null)
+            }
+        }
+    }
+
     //처음 노드가 생성되고, 다음 노드로 이동하기 위해
     //처음 노드(현재 기준 전 노드)를 담기위해 각 포인트마다 노드를 저장해준다.
     private var leftTopPointBeforeAnchorNode: AnchorNode? = null
@@ -207,16 +219,41 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                             nodePoint = 4
                         )
                     }
+                } else {
+
+//                    if (leftTopPointBeforeAnchorNode != null) {
+//                        arFragment!!.arSceneView.scene.removeChild(leftTopPointBeforeAnchorNode)
+//                        leftTopPointBeforeAnchorNode?.setParent(null)
+//                    }
+//
+//
+//                    if (rightTopPointBeforeAnchorNode != null) {
+//                        arFragment!!.arSceneView.scene.removeChild(rightTopPointBeforeAnchorNode)
+//                        rightTopPointBeforeAnchorNode?.setParent(null)
+//                    }
+//
+//
+//                    if (leftDownPointBeforeAnchorNode != null) {
+//                        arFragment!!.arSceneView.scene.removeChild(
+//                            leftDownPointBeforeAnchorNode
+//                        )
+//                        leftDownPointBeforeAnchorNode?.setParent(null)
+//                    }
+//
+//                    if (rightDownPointBeforeAnchorNode != null) {
+//                        arFragment!!.arSceneView.scene.removeChild(rightDownPointBeforeAnchorNode)
+//                        rightDownPointBeforeAnchorNode?.setParent(null)
+//                    }
                 }
             }
         }
     }
 
     //사각형 꼭짓점에 구렌더러블 만들기
-    // 1 -> 왼쪽 위,
-    // 2 -> 오른쪽 위,
-    // 3 -> 왼쪽 아래,
-    // 4 -> 오른쪽 아래
+// 1 -> 왼쪽 위,
+// 2 -> 오른쪽 위,
+// 3 -> 왼쪽 아래,
+// 4 -> 오른쪽 아래
     private fun createCircleRender(
         widthRatio: Float,
         heightRatio: Float,
@@ -232,7 +269,23 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
         while (hitIterator.hasNext()) {
 
-            val anchorNode = putMoveRenderInPlane(plane, hitIterator)
+            val hitResult = hitIterator.next()
+
+            //평면에 앵커 만들기
+            val modelAnchor = plane.createAnchor(hitResult.hitPose)
+
+            //secne을 부모로 사용하여 앵커에 노드를 연결한다.
+            val anchorNode = AnchorNode(modelAnchor).apply {
+                isSmoothed = true
+                setParent(arFragment?.arSceneView?.scene)
+                renderable = cubeRenderable
+                //실제 위치를 변경하여 테이블 상단에 개체가 렌더링되도록 합니다.
+                worldPosition = Vector3(
+                    modelAnchor.pose.tx(),
+                    modelAnchor.pose.compose(Pose.makeTranslation(0f, 0.05f, 0f)).ty(),
+                    modelAnchor.pose.tz()
+                )
+            }
 
             //전에 저장한 노드가 있다면, 지워준다.
             //후에는 현재노드를 이전노드에 다시 넣어준다.
@@ -242,6 +295,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 1 -> {
                     if (leftTopPointBeforeAnchorNode != null) {
                         arFragment!!.arSceneView.scene.removeChild(leftTopPointBeforeAnchorNode)
+                        leftTopPointBeforeAnchorNode?.anchor?.detach()
+                        leftTopPointBeforeAnchorNode?.isEnabled = false
                         leftTopPointBeforeAnchorNode?.setParent(null)
                     }
                     leftTopPointBeforeAnchorNode = anchorNode
@@ -249,6 +304,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 2 -> {
                     if (rightTopPointBeforeAnchorNode != null) {
                         arFragment!!.arSceneView.scene.removeChild(rightTopPointBeforeAnchorNode)
+                        rightTopPointBeforeAnchorNode?.anchor?.detach()
+                        rightTopPointBeforeAnchorNode?.isEnabled = false
                         rightTopPointBeforeAnchorNode?.setParent(null)
                     }
                     rightTopPointBeforeAnchorNode = anchorNode
@@ -256,6 +313,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 3 -> {
                     if (leftDownPointBeforeAnchorNode != null) {
                         arFragment!!.arSceneView.scene.removeChild(leftDownPointBeforeAnchorNode)
+                        leftDownPointBeforeAnchorNode?.anchor?.detach()
+                        leftDownPointBeforeAnchorNode?.isEnabled = false
                         leftDownPointBeforeAnchorNode?.setParent(null)
                     }
                     leftDownPointBeforeAnchorNode = anchorNode
@@ -263,6 +322,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 else -> {
                     if (rightDownPointBeforeAnchorNode != null) {
                         arFragment!!.arSceneView.scene.removeChild(rightDownPointBeforeAnchorNode)
+                        rightDownPointBeforeAnchorNode?.anchor?.detach()
+                        rightDownPointBeforeAnchorNode?.isEnabled = false
                         rightDownPointBeforeAnchorNode?.setParent(null)
                     }
                     rightDownPointBeforeAnchorNode = anchorNode
@@ -277,43 +338,20 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         return Vector3(vw.width / widthRatio, vw.height / heightRatio, 0f)
     }
 
-    //움직이는 노드 (왼쪽 위, 오른쪽 위)
-    //렌더를 plane에 두기
-    //이동시킬 노드를 얻기 위해 반환한다.
-    private fun putMoveRenderInPlane(
-        plane: Plane,
-        hitTestIterator: MutableIterator<HitResult>
-    ): AnchorNode {
-
-        val hitResult = hitTestIterator.next()
-
-        //평면에 앵커 만들기
-        val modelAnchor = plane.createAnchor(hitResult.hitPose)
-
-        //secne을 부모로 사용하여 앵커에 노드를 연결한다.
-        val anchorNode = AnchorNode(modelAnchor).apply {
-            isSmoothed = true
-            setParent(arFragment?.arSceneView?.scene)
-            renderable = cubeRenderable
-            //실제 위치를 변경하여 테이블 상단에 개체가 렌더링되도록 합니다.
-//            worldPosition = Vector3(
-//                modelAnchor.pose.tx(),
-//                modelAnchor.pose.compose(Pose.makeTranslation(0f, 0.05f, 0f)).ty(),
-//                modelAnchor.pose.tz()
-//            )
-        }
-
-        return anchorNode
-    }
-
     //첫 사용 이후 저장된 라인노드들이다.
-    private var beforeLeftTopToRightTopLineNode: Node? = null
-    private var beforeRightTopToRightDownLineNode: Node? = null
-    private var beforeRightDownToLeftDownLineNode: Node? = null
-    private var beforeLeftDownToLeftTopLineNode: Node? = null
+    private var beforeLeftTopToRightTopLineNode: AnchorNode? = null
+    private var beforeRightTopToRightDownLineNode: AnchorNode? = null
+    private var beforeRightDownToLeftDownLineNode: AnchorNode? = null
+    private var beforeLeftDownToLeftTopLineNode: AnchorNode? = null
 
-    private fun addLineBetweenPoints(scene: Scene?, plane: Plane, from: Vector3, to: Vector3, nodePoint: Int) {
-        if(scene == null) return
+    private fun addLineBetweenPoints(
+        scene: Scene?,
+        plane: Plane,
+        from: Vector3,
+        to: Vector3,
+        nodePoint: Int
+    ) {
+        if (scene == null) return
 
         // prepare an anchor position
         val camQ = scene.camera.worldRotation
@@ -345,7 +383,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 model.isShadowCaster = false
 
                 // 3. make node
-                val lineNode = Node().apply {
+                val lineNode = AnchorNode().apply {
                     renderable = model
                     setParent(anchorNode)
 
@@ -369,6 +407,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                             arFragment!!.arSceneView.scene.removeChild(
                                 beforeLeftTopToRightTopLineNode
                             )
+                            beforeLeftTopToRightTopLineNode?.anchor?.detach()
+                            beforeLeftTopToRightTopLineNode?.isEnabled = false
                             beforeLeftTopToRightTopLineNode?.setParent(null)
                         }
                         beforeLeftTopToRightTopLineNode = lineNode
@@ -378,6 +418,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                             arFragment!!.arSceneView.scene.removeChild(
                                 beforeRightTopToRightDownLineNode
                             )
+                            beforeRightTopToRightDownLineNode?.anchor?.detach()
+                            beforeRightTopToRightDownLineNode?.isEnabled = false
                             beforeRightTopToRightDownLineNode?.setParent(null)
                         }
                         beforeRightTopToRightDownLineNode = lineNode
@@ -387,6 +429,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                             arFragment!!.arSceneView.scene.removeChild(
                                 beforeRightDownToLeftDownLineNode
                             )
+                            beforeRightDownToLeftDownLineNode?.anchor?.detach()
+                            beforeRightDownToLeftDownLineNode?.isEnabled = false
                             beforeRightDownToLeftDownLineNode?.setParent(null)
                         }
                         beforeRightDownToLeftDownLineNode = lineNode
@@ -396,6 +440,8 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                             arFragment!!.arSceneView.scene.removeChild(
                                 beforeLeftDownToLeftTopLineNode
                             )
+                            beforeLeftDownToLeftTopLineNode?.anchor?.detach()
+                            beforeLeftDownToLeftTopLineNode?.isEnabled = false
                             beforeLeftDownToLeftTopLineNode?.setParent(null)
                         }
                         beforeLeftDownToLeftTopLineNode = lineNode
