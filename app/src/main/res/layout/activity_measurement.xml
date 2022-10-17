@@ -13,7 +13,7 @@
 
             <fragment
                 android:id="@+id/ar_fragment"
-                android:name="com.google.ar.sceneform.ux.ArFragment"
+                android:name="com.shibuiwilliam.arcoremeasurement.measurement.CustomArFragment"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="9.5" />

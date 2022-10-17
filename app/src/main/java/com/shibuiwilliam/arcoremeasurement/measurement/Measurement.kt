@@ -11,13 +11,12 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.ar.core.*
-import com.google.ar.core.Camera
-import com.google.ar.sceneform.*
+import com.google.ar.sceneform.AnchorNode
+import com.google.ar.sceneform.FrameTime
+import com.google.ar.sceneform.Scene
 import com.google.ar.sceneform.math.Quaternion
 import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.*
-import com.google.ar.sceneform.ux.ArFragment
-import com.google.ar.sceneform.ux.TransformableNode
 import com.shibuiwilliam.arcoremeasurement.R
 import com.shibuiwilliam.arcoremeasurement.databinding.ActivityMeasurementBinding
 import com.shibuiwilliam.arcoremeasurement.measurement.state.ErrorType
@@ -34,7 +33,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         private val TAG: String = Measurement::class.java.simpleName
     }
 
-    private var arFragment: ArFragment? = null
+    private var arFragment: CustomArFragment? = null
 
     private var cubeRenderable: ModelRenderable? = null
 
@@ -49,10 +48,11 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         binding = ActivityMeasurementBinding.inflate(layoutInflater)
         setContentView(binding.root)
         cubeTestRenderable()
-        arFragment = (supportFragmentManager.findFragmentById(R.id.ar_fragment) as ArFragment?)
+        arFragment = (supportFragmentManager.findFragmentById(R.id.ar_fragment) as CustomArFragment?)
         arFragment?.planeDiscoveryController?.hide()
         arFragment?.planeDiscoveryController?.setInstructionView(null)
         arFragment?.arSceneView?.planeRenderer?.isEnabled = false
+
 
         //하나의 수평면만 감지하기
         val config = arFragment?.arSceneView?.session?.config
@@ -74,6 +74,9 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         }
         Toast.makeText(this, message + "다시 촬영해주세요.", Toast.LENGTH_SHORT).show()
     }
+
+
+
 
     //테스트용 렌더러블 빨간 공
     private fun cubeTestRenderable() {
@@ -139,8 +142,10 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         //view에서 frame 가져오기
         val frame = arFragment?.arSceneView?.arFrame
         if (frame != null) {
+
+            val planeObj = frame.getUpdatedTrackables(Plane::class.java)
             //plane이 감지되었는지 확인하는 추가적인 작업
-            val var3 = frame.getUpdatedTrackables(Plane::class.java).iterator()
+            val var3 = planeObj.iterator()
             while (var3.hasNext()) {
                 val plane = var3.next() as Plane
 
@@ -158,71 +163,73 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                         leftDownPointBeforeAnchorNode != null &&
                         rightDownPointBeforeAnchorNode != null
                     ) {
-                        lifecycleScope.launch {
-                            launch {
-                                moveCircleRender(
-                                    widthRatio = 7f,
-                                    heightRatio = 12f,
-                                    frame = frame,
-                                    nodePoint = 1
-                                )
+                        if(!iterableAnchor.hasNext()) {
+                            lifecycleScope.launch {
+                                launch {
+                                    moveCircleRender(
+                                        widthRatio = 7f,
+                                        heightRatio = 12f,
+                                        frame = frame,
+                                        nodePoint = 1
+                                    )
+                                }
+                                launch {
+                                    moveCircleRender(
+                                        widthRatio = 1.18f,
+                                        heightRatio = 12f,
+                                        frame = frame,
+                                        nodePoint = 2
+                                    )
+                                }
+                                launch {
+                                    moveCircleRender(
+                                        widthRatio = 7f,
+                                        heightRatio = 1.25f,
+                                        frame = frame,
+                                        nodePoint = 3
+                                    )
+                                }
+                                launch {
+                                    moveCircleRender(
+                                        widthRatio = 1.18f,
+                                        heightRatio = 1.25f,
+                                        frame = frame,
+                                        nodePoint = 4
+                                    )
+                                }
                             }
-                            launch {
-                                moveCircleRender(
-                                    widthRatio = 1.18f,
-                                    heightRatio = 12f,
-                                    frame = frame,
-                                    nodePoint = 2
-                                )
-                            }
-                            launch {
-                                moveCircleRender(
-                                    widthRatio = 7f,
-                                    heightRatio = 1.25f,
-                                    frame = frame,
-                                    nodePoint = 3
-                                )
-                            }
-                            launch {
-                                moveCircleRender(
-                                    widthRatio = 1.18f,
-                                    heightRatio = 1.25f,
-                                    frame = frame,
-                                    nodePoint = 4
-                                )
-                            }
+
+                            //라인 그리기
+                            addLineBetweenPoints(
+                                scene = arFragment?.arSceneView?.scene,
+                                plane = plane,
+                                from = leftTopPointBeforeAnchorNode?.worldPosition!!,
+                                to = rightTopPointBeforeAnchorNode?.worldPosition!!,
+                                nodePoint = 1
+                            )
+                            addLineBetweenPoints(
+                                scene = arFragment?.arSceneView?.scene,
+                                plane = plane,
+                                from = rightTopPointBeforeAnchorNode?.worldPosition!!,
+                                to = rightDownPointBeforeAnchorNode?.worldPosition!!,
+                                nodePoint = 2
+                            )
+
+                            addLineBetweenPoints(
+                                scene = arFragment?.arSceneView?.scene,
+                                plane = plane,
+                                from = rightDownPointBeforeAnchorNode?.worldPosition!!,
+                                to = leftDownPointBeforeAnchorNode?.worldPosition!!,
+                                nodePoint = 3
+                            )
+                            addLineBetweenPoints(
+                                scene = arFragment?.arSceneView?.scene,
+                                plane = plane,
+                                from = leftDownPointBeforeAnchorNode?.worldPosition!!,
+                                to = leftTopPointBeforeAnchorNode?.worldPosition!!,
+                                nodePoint = 4
+                            )
                         }
-
-                        //라인 그리기
-                        addLineBetweenPoints(
-                            scene = arFragment?.arSceneView?.scene,
-                            plane = plane,
-                            from = leftTopPointBeforeAnchorNode?.worldPosition!!,
-                            to = rightTopPointBeforeAnchorNode?.worldPosition!!,
-                            nodePoint = 1
-                        )
-                        addLineBetweenPoints(
-                            scene = arFragment?.arSceneView?.scene,
-                            plane = plane,
-                            from = rightTopPointBeforeAnchorNode?.worldPosition!!,
-                            to = rightDownPointBeforeAnchorNode?.worldPosition!!,
-                            nodePoint = 2
-                        )
-
-                        addLineBetweenPoints(
-                            scene = arFragment?.arSceneView?.scene,
-                            plane = plane,
-                            from = rightDownPointBeforeAnchorNode?.worldPosition!!,
-                            to = leftDownPointBeforeAnchorNode?.worldPosition!!,
-                            nodePoint = 3
-                        )
-                        addLineBetweenPoints(
-                            scene = arFragment?.arSceneView?.scene,
-                            plane = plane,
-                            from = leftDownPointBeforeAnchorNode?.worldPosition!!,
-                            to = leftTopPointBeforeAnchorNode?.worldPosition!!,
-                            nodePoint = 4
-                        )
                         return
                     } else {
                         //왼쪽 위에 렌더
@@ -305,26 +312,26 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                         )
                     )
                 }
-                3 -> {
-                    leftDownPointBeforeAnchorNode = moveRenderable(
-                        leftDownPointBeforeAnchorNode,
-                        Pose.makeTranslation(
-                            hitResult.hitPose.tx(),
-                            hitResult.hitPose.ty(),
-                            hitResult.hitPose.tz()
-                        )
-                    )
-                }
-                else -> {
-                    rightDownPointBeforeAnchorNode = moveRenderable(
-                        rightDownPointBeforeAnchorNode,
-                        Pose.makeTranslation(
-                            hitResult.hitPose.tx(),
-                            hitResult.hitPose.ty(),
-                            hitResult.hitPose.tz()
-                        )
-                    )
-                }
+//                3 -> {
+//                    leftDownPointBeforeAnchorNode = moveRenderable(
+//                        leftDownPointBeforeAnchorNode,
+//                        Pose.makeTranslation(
+//                            hitResult.hitPose.tx(),
+//                            hitResult.hitPose.ty(),
+//                            hitResult.hitPose.tz()
+//                        )
+//                    )
+//                }
+//                else -> {
+//                    rightDownPointBeforeAnchorNode = moveRenderable(
+//                        rightDownPointBeforeAnchorNode,
+//                        Pose.makeTranslation(
+//                            hitResult.hitPose.tx(),
+//                            hitResult.hitPose.ty(),
+//                            hitResult.hitPose.tz()
+//                        )
+//                    )
+//                }
             }
         }
     }
@@ -351,7 +358,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             isShadowReceiver = false
         }
 
-        newMarkAnchorNode.renderable = cubeRenderable
+//        newMarkAnchorNode.renderable = cubeRenderable
         newMarkAnchorNode.setParent(arFragment!!.arSceneView.scene)
 
         return newMarkAnchorNode
@@ -386,7 +393,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                 val anchorNode = AnchorNode(modelAnchor).apply {
                     isSmoothed = true
                     setParent(arFragment?.arSceneView?.scene)
-                    renderable = cubeRenderable
+//                    renderable = cubeRenderable
                     //실제 위치를 변경하여 테이블 상단에 개체가 렌더링되도록 합니다.
                     worldPosition = Vector3(
                         modelAnchor.pose.tx(),
