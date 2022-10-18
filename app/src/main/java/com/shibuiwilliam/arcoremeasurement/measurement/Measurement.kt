@@ -5,22 +5,21 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
-import android.view.View
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
 import com.google.ar.core.*
-import com.google.ar.sceneform.AnchorNode
-import com.google.ar.sceneform.FrameTime
-import com.google.ar.sceneform.Scene
-import com.google.ar.sceneform.math.Quaternion
+import com.google.ar.sceneform.*
+import com.google.ar.sceneform.collision.Ray
 import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.*
+import com.google.ar.sceneform.rendering.PlaneRenderer.MATERIAL_TEXTURE
+import com.google.ar.sceneform.rendering.PlaneRenderer.MATERIAL_UV_SCALE
+import com.google.ar.sceneform.rendering.RenderableDefinition.Submesh
 import com.shibuiwilliam.arcoremeasurement.R
 import com.shibuiwilliam.arcoremeasurement.databinding.ActivityMeasurementBinding
-import com.shibuiwilliam.arcoremeasurement.measurement.state.ErrorType
-import kotlinx.coroutines.launch
+import java.awt.Polygon
+import java.nio.FloatBuffer
 import java.util.*
 
 
@@ -49,58 +48,57 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         binding = ActivityMeasurementBinding.inflate(layoutInflater)
         setContentView(binding.root)
         cubeTestRenderable()
-        arFragment = (supportFragmentManager.findFragmentById(R.id.ar_fragment) as CustomArFragment?)
-        arFragment?.planeDiscoveryController?.hide()
-        arFragment?.planeDiscoveryController?.setInstructionView(null)
-        arFragment?.arSceneView?.planeRenderer?.isEnabled = false
+        arFragment =
+            (supportFragmentManager.findFragmentById(R.id.ar_fragment) as CustomArFragment?)
 
-
-        //하나의 수평면만 감지하기
-        val config = arFragment?.arSceneView?.session?.config
-        config?.planeFindingMode = Config.PlaneFindingMode.DISABLED
-        arFragment?.arSceneView?.session?.configure(config)
-
-        arFragment?.arSceneView?.scene?.addOnUpdateListener(this@Measurement::onUpdate)
-
-        binding.getLocation.setOnClickListener {
-//            Toast.makeText(this, "아", Toast.LENGTH_SHORT).show()
-            Log.d("각 포지션", "left : ${leftTopPointBeforeAnchorNode?.worldPosition}, right : ${rightTopPointBeforeAnchorNode?.worldPosition}")
-        }
-    }
-
-    //타입 별 message 띄우기
-    private fun messageByType(type: ErrorType?) {
-        val message = when (type) {
-            ErrorType.NO_CONTOUR -> "윤곽이 보이지 않습니다."
-            ErrorType.TOO_SMALL -> "테두리가 너무 작습니다."
-            ErrorType.NO_BORDER_DETECTION -> "테두리가 감지 되지 않습니다."
-            ErrorType.IS_CONVEX -> ""
-            ErrorType.OPENCV_INIT_FAILED -> "초기화에 실패하였습니다."
-            else -> ""
-        }
-        Toast.makeText(this, message + "다시 촬영해주세요.", Toast.LENGTH_SHORT).show()
+//        setPlaneTexture("images.png")
     }
 
 
-
+    //plane 텍스쳐 입히기
+    /**
+     * Sets the plane renderer texture.
+     * @param texturePath - Path to texture to use in the assets directory.
+     */
+    private fun setPlaneTexture(texturePath: String) {
+        val sampler = Texture.Sampler.builder()
+            .setMinFilter(Texture.Sampler.MinFilter.LINEAR_MIPMAP_LINEAR)
+            .setMagFilter(Texture.Sampler.MagFilter.LINEAR)
+            .setWrapModeR(Texture.Sampler.WrapMode.REPEAT)
+            .setWrapModeS(Texture.Sampler.WrapMode.REPEAT)
+            .setWrapModeT(Texture.Sampler.WrapMode.REPEAT)
+            .build()
+        Texture.builder().setSource { assets.open(texturePath) }
+            .setSampler(sampler)
+            .build().thenAccept { texture ->
+                Toast.makeText(this, texture.toString(), Toast.LENGTH_SHORT).show()
+                arFragment?.arSceneView?.planeRenderer?.material?.thenAccept { material ->
+                    material.setTexture(MATERIAL_TEXTURE, texture)
+                    material.setFloat(
+                        MATERIAL_UV_SCALE,
+                        10f
+                    )
+                }
+            }.exceptionally { ex ->
+                Log.e(TAG, "Failed to read an asset file", ex)
+                null
+            }
+    }
 
     //테스트용 렌더러블 빨간 공
     private fun cubeTestRenderable() {
         MaterialFactory.makeTransparentWithColor(
             this,
-            Color(android.graphics.Color.BLACK)
+            Color(android.graphics.Color.RED)
         )
             .thenAccept { material: Material? ->
-                cubeRenderable = ShapeFactory.makeSphere(
-                    0.005f,
-                    Vector3.zero(),
-                    material
-                )
+                cubeRenderable = ShapeFactory.makeSphere(0.05f, Vector3.zero(), material)
                 cubeRenderable!!.isShadowCaster = false
                 cubeRenderable!!.isShadowReceiver = false
             }
             .exceptionally {
                 Toast.makeText(this@Measurement, "Error", Toast.LENGTH_SHORT).show()
+
                 return@exceptionally null
             }
 
@@ -128,434 +126,143 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         return true
     }
 
+    override fun onUpdate(p0: FrameTime?) {
+        var camera = arFragment?.arSceneView?.scene?.camera
 
-    private fun removeAnchorNode(nodeToRemove: AnchorNode) {
-        arFragment?.arSceneView?.scene?.removeChild(nodeToRemove)
-        nodeToRemove.anchor?.detach()
-        nodeToRemove.isEnabled = false
-        nodeToRemove.setParent(null)
-        nodeToRemove.renderable = null
-    }
+        var ray: Ray? = camera?.screenPointToRay(200f, 500f)
 
-    //처음 노드가 생성되고, 다음 노드로 이동하기 위해
-    //처음 노드(현재 기준 전 노드)를 담기위해 각 포인트마다 노드를 저장해준다.
-    private var leftTopPointBeforeAnchorNode: AnchorNode? = null
-    private var rightTopPointBeforeAnchorNode: AnchorNode? = null
-    private var leftDownPointBeforeAnchorNode: AnchorNode? = null
-    private var rightDownPointBeforeAnchorNode: AnchorNode? = null
-
-    //전에 플레인을 변수에 넣고 지워주기(안 지우면 버퍼링이 심해짐)
-    private var beforePlaneObj: MutableCollection<Plane>? = null
-
-    override fun onUpdate(ft: FrameTime?) {
-        //view에서 frame 가져오기
         val frame = arFragment?.arSceneView?.arFrame
         if (frame != null) {
-            //넣어놨던 plane이 있다면 제거
-            try {
-                if(beforePlaneObj != null) {
-                    beforePlaneObj?.clear()
-                    beforePlaneObj == null
-                }
-            }catch (e : UnsupportedOperationException) {
 
-            }
             val planeObj = frame.getUpdatedTrackables(Plane::class.java)
-            //현재 plane 넣어주기
-            beforePlaneObj = planeObj
-            //plane이 감지되었는지 확인하는 추가적인 작업
             val var3 = planeObj.iterator()
             while (var3.hasNext()) {
                 val plane = var3.next() as Plane
-
                 //바닥이 감지되고 arcore에서 추적 중인 경우
                 if (plane.trackingState == TrackingState.TRACKING) {
-                    arFragment?.planeDiscoveryController?.hide()
-                    val iterableAnchor = frame.updatedAnchors.iterator()
 
-                    //만약 4개의 노드가 만들어졌다면,
-                    //만들어진 노드들로(새로 생성하지 않고,)
-                    //moveRenderable을 사용한다.
-                    if(
-                        leftTopPointBeforeAnchorNode != null &&
-                        rightTopPointBeforeAnchorNode != null &&
-                        leftDownPointBeforeAnchorNode != null &&
-                        rightDownPointBeforeAnchorNode != null
-                    ) {
-                        if(!iterableAnchor.hasNext()) {
-                            lifecycleScope.launch {
-                                launch {
-                                    moveCircleRender(
-                                        widthRatio = 7f,
-                                        heightRatio = 12f,
-                                        frame = frame,
-                                        nodePoint = 1
-                                    )
-                                }
-                                launch {
-                                    moveCircleRender(
-                                        widthRatio = 1.18f,
-                                        heightRatio = 12f,
-                                        frame = frame,
-                                        nodePoint = 2
-                                    )
-                                }
-                                launch {
-                                    moveCircleRender(
-                                        widthRatio = 7f,
-                                        heightRatio = 1.25f,
-                                        frame = frame,
-                                        nodePoint = 3
-                                    )
-                                }
-                                launch {
-                                    moveCircleRender(
-                                        widthRatio = 1.18f,
-                                        heightRatio = 1.25f,
-                                        frame = frame,
-                                        nodePoint = 4
-                                    )
-                                }
-                            }
+                    plane.polygon
+                    plane.centerPose.
+                }
+            }
+        }
+    }
 
-                            //라인 그리기
-                            addLineBetweenPoints(
-                                scene = arFragment?.arSceneView?.scene,
-                                plane = plane,
-                                from = leftTopPointBeforeAnchorNode?.worldPosition!!,
-                                to = rightTopPointBeforeAnchorNode?.worldPosition!!,
-                                nodePoint = 1
-                            )
-                            addLineBetweenPoints(
-                                scene = arFragment?.arSceneView?.scene,
-                                plane = plane,
-                                from = rightTopPointBeforeAnchorNode?.worldPosition!!,
-                                to = rightDownPointBeforeAnchorNode?.worldPosition!!,
-                                nodePoint = 2
-                            )
+    private fun drawTwoDPolygon() {
+        val frame = arFragment?.arSceneView?.arFrame
+        if (frame != null) {
+            val planeObj = frame.getUpdatedTrackables(Plane::class.java)
+            val var3 = planeObj.iterator()
+            while (var3.hasNext()) {
+                val plane = var3.next() as Plane
+                if (plane.trackingState != TrackingState.TRACKING) return
 
-                            addLineBetweenPoints(
-                                scene = arFragment?.arSceneView?.scene,
-                                plane = plane,
-                                from = rightDownPointBeforeAnchorNode?.worldPosition!!,
-                                to = leftDownPointBeforeAnchorNode?.worldPosition!!,
-                                nodePoint = 3
+                val planeFloatBuffer: FloatBuffer = plane.polygon
+
+                val pose = plane.centerPose
+                val polygonList: List<PolygonPoint> = ArrayList()
+
+                {
+                    var i = 0
+                    while (i < planeFloatBuffer.remaining() - 1) {
+                        val transformedPoint = pose.transformPoint(
+                            floatArrayOf(
+                                planeFloatBuffer.get(i), 0f,
+                                planeFloatBuffer.get(i + 1)
                             )
-                            addLineBetweenPoints(
-                                scene = arFragment?.arSceneView?.scene,
-                                plane = plane,
-                                from = leftDownPointBeforeAnchorNode?.worldPosition!!,
-                                to = leftTopPointBeforeAnchorNode?.worldPosition!!,
-                                nodePoint = 4
+                        )
+                        polygonList.add(
+                            PolygonPoint(
+                                transformedPoint[0],
+                                transformedPoint[1],
+                                transformedPoint[2]
                             )
+                        )
+                        i += 2
+                    }
+                }
+
+
+                if (polygonList.size > 0) {
+                    val uv0 = UvCoordinate(0, 0)
+                    val vertexPerFeature = 3
+                    val vertexPerFace = 3
+                    val numFaces = 4
+                    val numFeatures = 1
+                    val polygon = Polygon(polygonList)
+                    Poly2Tri.triangulate(polygon)
+                    val triangles: List<DelaunayTriangle> = polygon.getTriangles()
+                    val numPoints = triangles.size * vertexPerFeature
+                    val indexPerFeature = numFaces * vertexPerFace
+                    val numIndices = triangles.size * indexPerFeature
+                    if (ptbuffer == null || ptbuffer.length < numPoints) {
+                        ptbuffer = arrayOfNulls<Vertex>(numPoints)
+                        indexbuffer = IntArray(numIndices)
+                    }
+                    var idx = 0
+                    for (triangle in triangles) {
+                        val vertexBase = idx * vertexPerFeature
+                        ptbuffer.get(vertexBase) = Vertex.builder().setPosition(
+                            Vector3(
+                                triangle.points.get(0).getXf(),
+                                triangle.points.get(0).getYf(),
+                                triangle.points.get(0).getZf()
+                            )
+                        )
+                            .setUvCoordinate(uv0)
+                            .setNormal(Vector3(0.5f, 0.5f, 0.5f))
+                            .build()
+                        ptbuffer.get(vertexBase + 1) = Vertex.builder().setPosition(
+                            Vector3(
+                                triangle.points.get(1).getXf(),
+                                triangle.points.get(1).getYf(),
+                                triangle.points.get(1).getZf()
+                            )
+                        )
+                            .setUvCoordinate(uv0)
+                            .setNormal(Vector3(0.5f, 0.5f, 0.5f))
+                            .build()
+                        ptbuffer.get(vertexBase + 2) = Vertex.builder().setPosition(
+                            Vector3(
+                                triangle.points.get(2).getXf(),
+                                triangle.points.get(2).getYf(),
+                                triangle.points.get(2).getZf()
+                            )
+                        )
+                            .setUvCoordinate(uv0)
+                            .setNormal(Vector3(0.5f, 0.5f, 0.5f))
+                            .build()
+                        val featureBase = idx * indexPerFeature
+
+                        // left 0 1 2
+                        indexbuffer.get(featureBase + 2) = vertexBase
+                        indexbuffer.get(featureBase) = vertexBase + 1
+                        indexbuffer.get(featureBase + 1) = vertexBase + 2
+                        idx++
+                    }
+                    val submesh = Submesh.builder()
+                        .setName("pointcloud")
+                        .setMaterial(materialHolder.getNow(null))
+                        .setTriangleIndices(
+                            IntStream.of(indexbuffer)
+                                .limit(numIndices)
+                                .boxed()
+                                .collect(Collectors.toList())
+                        )
+                        .build()
+                    val def = RenderableDefinition.builder()
+                        .setVertices(
+                            Stream.of(ptbuffer).limit(numPoints).collect(Collectors.toList())
+                        )
+                        .setSubmeshes(Stream.of(submesh).collect(Collectors.toList()))
+                        .build()
+                    ModelRenderable.builder().setSource(def).build()
+                        .thenAccept { renderable: ModelRenderable ->
+                            renderable.isShadowCaster = false
+                            setRenderable(renderable)
                         }
-                        return
-                    } else {
-                        //왼쪽 위에 렌더
-                        createCircleRender(
-                            widthRatio = 7f,
-                            heightRatio = 12f,
-                            frame = frame,
-                            plane = plane,
-                            nodePoint = 1,
-                            iterableAnchor = iterableAnchor
-                        )
-
-                        //오른쪽 위에 렌더
-                        createCircleRender(
-                            widthRatio = 1.18f,
-                            heightRatio = 12f,
-                            frame = frame,
-                            plane = plane,
-                            nodePoint = 2,
-                            iterableAnchor = iterableAnchor
-                        )
-
-                        //왼쪽 아래 렌더
-                        createCircleRender(
-                            widthRatio = 7f,
-                            heightRatio = 1.25f,
-                            frame = frame,
-                            plane = plane,
-                            nodePoint = 3,
-                            iterableAnchor = iterableAnchor
-                        )
-
-                        //오른쪽 아래 렌더
-                        createCircleRender(
-                            widthRatio = 1.18f,
-                            heightRatio = 1.25f,
-                            frame = frame,
-                            plane = plane,
-                            nodePoint = 4,
-                            iterableAnchor = iterableAnchor
-                        )
-                    }
                 }
             }
         }
-    }
-
-    //서클 렌더 움직이기
-    private fun moveCircleRender(
-        widthRatio: Float,
-        heightRatio: Float,
-        frame: Frame,
-        nodePoint: Int
-    ) {
-        val screenPoint = getScreenPoint(widthRatio, heightRatio)
-        val hitPoint = frame.hitTest(screenPoint.x, screenPoint.y)
-        val hitIterator = hitPoint.iterator()
-        while (hitIterator.hasNext()) {
-
-            val hitResult = hitIterator.next()
-
-            when(nodePoint) {
-                1 -> {
-                    Log.d("포인트 x", hitResult.hitPose.tx().toString())
-                    Log.d("포인트 y", hitResult.hitPose.ty().toString())
-                    Log.d("포인트 z", hitResult.hitPose.tz().toString())
-                    val test2 = 1.0f
-                    val test = if(hitResult.hitPose.tz() > 0) test2 else -test2
-                    leftTopPointBeforeAnchorNode = moveRenderable(
-                        leftTopPointBeforeAnchorNode,
-                        Pose.makeTranslation(
-                            hitResult.hitPose.tx(),
-                            hitResult.hitPose.ty(),
-                            hitResult.hitPose.tz() + test
-                        )
-                    )
-                }
-                2 -> {
-                    rightTopPointBeforeAnchorNode = moveRenderable(
-                        rightTopPointBeforeAnchorNode,
-                        Pose.makeTranslation(
-                            hitResult.hitPose.tx(),
-                            hitResult.hitPose.ty(),
-                            hitResult.hitPose.tz()
-                        )
-                    )
-                }
-                3 -> {
-                    leftDownPointBeforeAnchorNode = moveRenderable(
-                        leftDownPointBeforeAnchorNode,
-                        Pose.makeTranslation(
-                            hitResult.hitPose.tx(),
-                            hitResult.hitPose.ty(),
-                            hitResult.hitPose.tz()
-                        )
-                    )
-                }
-                else -> {
-                    rightDownPointBeforeAnchorNode = moveRenderable(
-                        rightDownPointBeforeAnchorNode,
-                        Pose.makeTranslation(
-                            hitResult.hitPose.tx(),
-                            hitResult.hitPose.ty(),
-                            hitResult.hitPose.tz()
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-
-    //렌더 움직이는 실질적인 기능
-    private fun moveRenderable(
-        markAnchorNodeToMove: AnchorNode?,
-        newPoseToMoveTo: Pose,
-    ): AnchorNode? {
-        //Move a renderable to a new pose
-        if (markAnchorNodeToMove != null) {
-            arFragment!!.arSceneView.scene.removeChild(markAnchorNodeToMove)
-        } else {
-            return null
-        }
-        val session = arFragment!!.arSceneView.session
-        val markAnchor = session!!.createAnchor(newPoseToMoveTo.extractTranslation())
-        val newMarkAnchorNode = AnchorNode(markAnchor).apply {
-            isSmoothed = true
-        }
-        cubeRenderable?.apply {
-            isShadowCaster = false
-            isShadowReceiver = false
-        }
-
-//        newMarkAnchorNode.renderable = cubeRenderable
-        newMarkAnchorNode.setParent(arFragment!!.arSceneView.scene)
-
-        return newMarkAnchorNode
-    }
-
-    //사각형 꼭짓점에 구렌더러블 만들기
-// 1 -> 왼쪽 위,
-// 2 -> 오른쪽 위,
-// 3 -> 왼쪽 아래,
-// 4 -> 오른쪽 아래
-    private fun createCircleRender(
-        widthRatio: Float,
-        heightRatio: Float,
-        frame: Frame,
-        plane: Plane,
-        nodePoint: Int,
-        iterableAnchor:  MutableIterator<Anchor>
-    ) {
-        if(!iterableAnchor.hasNext()) {
-            val screenPoint = getScreenPoint(widthRatio, heightRatio)
-            val hitPoint = frame.hitTest(screenPoint.x, screenPoint.y)
-            val hitIterator = hitPoint.iterator()
-
-            while (hitIterator.hasNext()) {
-
-                val hitResult = hitIterator.next()
-
-                //평면에 앵커 만들기
-                val modelAnchor = plane.createAnchor(hitResult.hitPose)
-
-                //secne을 부모로 사용하여 앵커에 노드를 연결한다.
-                val anchorNode = AnchorNode(modelAnchor).apply {
-                    isSmoothed = true
-                    setParent(arFragment?.arSceneView?.scene)
-//                    renderable = cubeRenderable
-                    //실제 위치를 변경하여 테이블 상단에 개체가 렌더링되도록 합니다.
-                    worldPosition = Vector3(
-                        -2.0f,
-                        modelAnchor.pose.compose(Pose.makeTranslation(0f, 0.05f, 0f)).ty(),
-                        modelAnchor.pose.tz()
-                    )
-                }
-
-                //전에 저장한 노드가 있다면, 지워준다.
-                //후에는 현재노드를 이전노드에 다시 넣어준다.
-                //물론 첫실행때는 변수에 현재노드를 넣어주기만 한다.(위에 moveRenderable은 실행하지 않음)
-                //node 포인트 따라 구분지어 넣어준다.
-                when (nodePoint) {
-                    1 -> {
-                        if (leftTopPointBeforeAnchorNode != null) removeAnchorNode(
-                            leftTopPointBeforeAnchorNode!!
-                        )
-                        leftTopPointBeforeAnchorNode = anchorNode
-                    }
-                    2 -> {
-                        if (rightTopPointBeforeAnchorNode != null) removeAnchorNode(
-                            rightTopPointBeforeAnchorNode!!
-                        )
-                        rightTopPointBeforeAnchorNode = anchorNode
-                    }
-                    3 -> {
-                        if (leftDownPointBeforeAnchorNode != null) removeAnchorNode(
-                            leftDownPointBeforeAnchorNode!!
-                        )
-                        leftDownPointBeforeAnchorNode = anchorNode
-                    }
-                    else -> {
-                        if (rightDownPointBeforeAnchorNode != null) removeAnchorNode(
-                            rightDownPointBeforeAnchorNode!!
-                        )
-                        rightDownPointBeforeAnchorNode = anchorNode
-                    }
-                }
-            }
-        }
-    }
-
-    //사각형의 꼭지점 스크린 포인트 가져오기
-    private fun getScreenPoint(widthRatio: Float = 1.0f, heightRatio: Float = 1.0f): Vector3 {
-        val vw = findViewById<View>(android.R.id.content)
-        return Vector3(vw.width / widthRatio, vw.height / heightRatio, 0f)
-    }
-
-    //첫 사용 이후 저장된 라인노드들이다.
-    private var beforeLeftTopToRightTopLineNode: AnchorNode? = null
-    private var beforeRightTopToRightDownLineNode: AnchorNode? = null
-    private var beforeRightDownToLeftDownLineNode: AnchorNode? = null
-    private var beforeLeftDownToLeftTopLineNode: AnchorNode? = null
-
-    private fun addLineBetweenPoints(
-        scene: Scene?,
-        plane: Plane,
-        from: Vector3,
-        to: Vector3,
-        nodePoint: Int
-    ) {
-        if (scene == null) return
-
-        // prepare an anchor position
-        val camQ = scene.camera.worldRotation
-        val f1 = floatArrayOf(to.x, to.y, to.z)
-        val f2 = floatArrayOf(camQ.x, camQ.y, camQ.z, camQ.w)
-        val anchorPose = Pose(f1, f2)
-
-        // make an ARCore Anchor
-        val anchor: Anchor = plane.createAnchor(anchorPose)
-        // Node that is automatically positioned in world space based on the ARCore Anchor.
-        val anchorNode = AnchorNode(anchor)
-        anchorNode.setParent(scene)
-
-        // Compute a line's length
-        val lineLength = Vector3.subtract(from, to).length()
-
-        // Prepare a color
-        val colorOrange = Color(android.graphics.Color.parseColor("#808080"))
-
-        // 1. make a material by the color
-        MaterialFactory.makeOpaqueWithColor(this, colorOrange)
-            .thenAccept { material: Material? ->
-                // 2. make a model by the material
-                val model = ShapeFactory.makeCylinder(
-                    0.00125f, lineLength,
-                    Vector3(0f, lineLength / 2, 0f), material
-                )
-                model.isShadowReceiver = false
-                model.isShadowCaster = false
-
-                // 3. make node
-                val lineNode = AnchorNode().apply {
-                    renderable = model
-                    setParent(anchorNode)
-                    isSmoothed = true
-
-                    // 4. set rotation
-                    val difference = Vector3.subtract(to, from)
-                    val directionFromTopToBottom = difference.normalized()
-                    val rotationFromAToB =
-                        Quaternion.lookRotation(
-                            directionFromTopToBottom,
-                            Vector3.up()
-                        )
-                    worldRotation = Quaternion.multiply(
-                        rotationFromAToB,
-                        Quaternion.axisAngle(Vector3(1.0f, 0.0f, 0.0f), 90f)
-                    )
-                }
-
-                when (nodePoint) {
-                    1 -> {
-                        if (beforeLeftTopToRightTopLineNode != null) removeAnchorNode(
-                            beforeLeftTopToRightTopLineNode!!
-                        )
-                        beforeLeftTopToRightTopLineNode = lineNode
-                    }
-                    2 -> {
-                        if (beforeRightTopToRightDownLineNode != null) removeAnchorNode(
-                            beforeRightTopToRightDownLineNode!!
-                        )
-                        beforeRightTopToRightDownLineNode = lineNode
-                    }
-                    3 -> {
-                        if (beforeRightDownToLeftDownLineNode != null) removeAnchorNode(
-                            beforeRightDownToLeftDownLineNode!!
-                        )
-                        beforeRightDownToLeftDownLineNode = lineNode
-                    }
-                    else -> {
-                        if (beforeLeftDownToLeftTopLineNode != null) removeAnchorNode(
-                            beforeLeftDownToLeftTopLineNode!!
-                        )
-                        beforeLeftDownToLeftTopLineNode = lineNode
-                    }
-                }
-            }
     }
 }
