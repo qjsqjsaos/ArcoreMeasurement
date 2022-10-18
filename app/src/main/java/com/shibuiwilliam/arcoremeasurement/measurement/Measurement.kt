@@ -26,6 +26,7 @@ import java.util.*
 
 class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
+
     private val vm: MeasurementViewModel by viewModels()
 
     companion object {
@@ -60,6 +61,11 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
         arFragment?.arSceneView?.session?.configure(config)
 
         arFragment?.arSceneView?.scene?.addOnUpdateListener(this@Measurement::onUpdate)
+
+        binding.getLocation.setOnClickListener {
+//            Toast.makeText(this, "아", Toast.LENGTH_SHORT).show()
+            Log.d("각 포지션", "left : ${leftTopPointBeforeAnchorNode?.worldPosition}, right : ${rightTopPointBeforeAnchorNode?.worldPosition}")
+        }
     }
 
     //타입 별 message 띄우기
@@ -138,12 +144,25 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
     private var leftDownPointBeforeAnchorNode: AnchorNode? = null
     private var rightDownPointBeforeAnchorNode: AnchorNode? = null
 
+    //전에 플레인을 변수에 넣고 지워주기(안 지우면 버퍼링이 심해짐)
+    private var beforePlaneObj: MutableCollection<Plane>? = null
+
     override fun onUpdate(ft: FrameTime?) {
         //view에서 frame 가져오기
         val frame = arFragment?.arSceneView?.arFrame
         if (frame != null) {
+            //넣어놨던 plane이 있다면 제거
+            try {
+                if(beforePlaneObj != null) {
+                    beforePlaneObj?.clear()
+                    beforePlaneObj == null
+                }
+            }catch (e : UnsupportedOperationException) {
 
+            }
             val planeObj = frame.getUpdatedTrackables(Plane::class.java)
+            //현재 plane 넣어주기
+            beforePlaneObj = planeObj
             //plane이 감지되었는지 확인하는 추가적인 작업
             val var3 = planeObj.iterator()
             while (var3.hasNext()) {
@@ -293,12 +312,17 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 
             when(nodePoint) {
                 1 -> {
+                    Log.d("포인트 x", hitResult.hitPose.tx().toString())
+                    Log.d("포인트 y", hitResult.hitPose.ty().toString())
+                    Log.d("포인트 z", hitResult.hitPose.tz().toString())
+                    val test2 = 1.0f
+                    val test = if(hitResult.hitPose.tz() > 0) test2 else -test2
                     leftTopPointBeforeAnchorNode = moveRenderable(
                         leftTopPointBeforeAnchorNode,
                         Pose.makeTranslation(
                             hitResult.hitPose.tx(),
                             hitResult.hitPose.ty(),
-                            hitResult.hitPose.tz()
+                            hitResult.hitPose.tz() + test
                         )
                     )
                 }
@@ -312,26 +336,26 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                         )
                     )
                 }
-//                3 -> {
-//                    leftDownPointBeforeAnchorNode = moveRenderable(
-//                        leftDownPointBeforeAnchorNode,
-//                        Pose.makeTranslation(
-//                            hitResult.hitPose.tx(),
-//                            hitResult.hitPose.ty(),
-//                            hitResult.hitPose.tz()
-//                        )
-//                    )
-//                }
-//                else -> {
-//                    rightDownPointBeforeAnchorNode = moveRenderable(
-//                        rightDownPointBeforeAnchorNode,
-//                        Pose.makeTranslation(
-//                            hitResult.hitPose.tx(),
-//                            hitResult.hitPose.ty(),
-//                            hitResult.hitPose.tz()
-//                        )
-//                    )
-//                }
+                3 -> {
+                    leftDownPointBeforeAnchorNode = moveRenderable(
+                        leftDownPointBeforeAnchorNode,
+                        Pose.makeTranslation(
+                            hitResult.hitPose.tx(),
+                            hitResult.hitPose.ty(),
+                            hitResult.hitPose.tz()
+                        )
+                    )
+                }
+                else -> {
+                    rightDownPointBeforeAnchorNode = moveRenderable(
+                        rightDownPointBeforeAnchorNode,
+                        Pose.makeTranslation(
+                            hitResult.hitPose.tx(),
+                            hitResult.hitPose.ty(),
+                            hitResult.hitPose.tz()
+                        )
+                    )
+                }
             }
         }
     }
@@ -396,7 +420,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
 //                    renderable = cubeRenderable
                     //실제 위치를 변경하여 테이블 상단에 개체가 렌더링되도록 합니다.
                     worldPosition = Vector3(
-                        modelAnchor.pose.tx(),
+                        -2.0f,
                         modelAnchor.pose.compose(Pose.makeTranslation(0f, 0.05f, 0f)).ty(),
                         modelAnchor.pose.tz()
                     )
