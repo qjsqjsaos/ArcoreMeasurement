@@ -3,15 +3,21 @@ package com.shibuiwilliam.arcoremeasurement.measurement
 import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Bundle
 import android.util.DisplayMetrics
 import android.util.Log
-import android.view.OrientationEventListener
 import android.view.View
+import android.view.animation.Animation
+import android.view.animation.RotateAnimation
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.google.ar.core.Plane
 import com.google.ar.core.TrackingState
 import com.google.ar.sceneform.FrameTime
@@ -26,10 +32,15 @@ import com.google.ar.sceneform.ux.TransformableNode
 import com.shibuiwilliam.arcoremeasurement.R
 import com.shibuiwilliam.arcoremeasurement.databinding.ActivityMeasurementBinding
 import com.shibuiwilliam.arcoremeasurement.databinding.PhotoFrameLayoutBinding
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.*
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 
-class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
+class Measurement : AppCompatActivity(), Scene.OnUpdateListener,
+    SensorEventListener {
 
 
     private val vm: MeasurementViewModel by viewModels()
@@ -64,6 +75,10 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             (supportFragmentManager.findFragmentById(R.id.ar_fragment) as CustomArFragment?)
 
         arFragment?.arSceneView?.scene?.addOnUpdateListener(this@Measurement::onUpdate)
+
+        mSensorManager = getSystemService(SENSOR_SERVICE) as SensorManager?
+        accelerometer = mSensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        magnetometer = mSensorManager?.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
 //        setPlaneTexture("images.png")
     }
@@ -110,7 +125,7 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
     private fun createFrameRenderable() {
         //디바이스 정보
         val width = binding.linearLayout.width
-        val height =  binding.linearLayout.height
+        val height = binding.linearLayout.height
         Log.e(TAG, "가로 ${width}, 세로 ${height}")
         val layoutParams = FrameLayout.LayoutParams(
             convertPixelsToDp(width.toFloat()),
@@ -218,15 +233,22 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
                             degreesFromCamToNegXAxis = -degreesFromCamToNegXAxis
                         }
 
+//                        frameNode?.apply {
+//                            worldPosition = ray!!.getPoint(.8f)
+//                            localRotation = Quaternion.axisAngle(
+//                                Vector3(1f, 0f, 0f),
+//                                degreesFromCamToNegXAxis.toFloat() + (nodeChangeDegree + 80)
+//                            )
+//                            setParent(camera)
+//                        }
+                        val screenOrientation = resources.configuration.orientation
+                        // TODO: 회전방향에 따라 아래 값을 다르게 적용시켜 보자 
                         frameNode?.apply {
                             worldPosition = ray!!.getPoint(.8f)
-                            //플레인 쿼터니언 넣어주기
-//                            localRotation = arFragment!!.arSceneView.scene.camera.localRotation
-
-                            localRotation = Quaternion.axisAngle(Vector3(1f, 0f, 0f),
-                                degreesFromCamToNegXAxis.toFloat() - nodeChangeDegree
+                            localRotation = Quaternion.axisAngle(
+                                Vector3(1f, 0f, 0f),
+                                nodeChangeDegree
                             )
-
                             setParent(camera)
                         }
                     }
@@ -242,7 +264,6 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
             renderable = frameRenderable
             translationController?.isEnabled = false
         }
-
         //노드 전역 변수에 넣어주기
         frameNode = node
     }
@@ -251,5 +272,43 @@ class Measurement : AppCompatActivity(), Scene.OnUpdateListener {
     private fun getScreenPoint(widthRatio: Float = 1.0f, heightRatio: Float = 1.0f): Vector3 {
         val vw = findViewById<View>(android.R.id.content)
         return Vector3(vw.width / widthRatio, vw.height / heightRatio, 0f)
+    }
+
+    private var accelerometer: Sensor? = null
+    private var magnetometer: Sensor? = null
+    private var mSensorManager: SensorManager? = null
+    private var mGravity: FloatArray? = null
+    private var mGeomagnetic: FloatArray? = null
+    //각도를 계속 갱신해준다.
+    override fun onSensorChanged(event: SensorEvent?) {
+            if (event?.sensor?.type == Sensor.TYPE_ACCELEROMETER) mGravity = event.values
+            if (event?.sensor?.type == Sensor.TYPE_MAGNETIC_FIELD) mGeomagnetic = event.values;
+            if (mGravity != null && mGeomagnetic != null) {
+                val r = FloatArray(9)
+                val l = FloatArray(9)
+                val success = SensorManager.getRotationMatrix (r, l, mGravity, mGeomagnetic)
+                if (success) {
+                    val orientation = FloatArray(3)
+                    SensorManager.getOrientation(r, orientation)
+                    //방위각 x값 얻기
+                    val azimuth = orientation[1].toDouble()
+                    //방위각을 각도로 변환하고,
+                    //해당 각도에 x값을 넣는다.
+                    nodeChangeDegree = Math.toDegrees(azimuth).toFloat()
+                }
+            }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    override fun onResume() {
+        super.onResume()
+        mSensorManager?.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI)
+        mSensorManager?.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_UI)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mSensorManager?.unregisterListener(this)
     }
 }
