@@ -3,9 +3,12 @@
   <component name="DesignSurface">
     <option name="filePathToZoomLevelMap">
       <map>
+        <entry key="..\:/Users/idic-04/AndroidStudioProjects/arcore-measurement/app/src/main/res/drawable/frame_border.xml" value="0.376" />
         <entry key="..\:/Users/idic-04/AndroidStudioProjects/arcore-measurement/app/src/main/res/layout/activity_measurement.xml" value="0.36153846153846153" />
         <entry key="..\:/Users/idic-04/AndroidStudioProjects/arcore-measurement/app/src/main/res/layout/distance_text_layout.xml" value="0.4817708333333333" />
+        <entry key="..\:/Users/idic-04/AndroidStudioProjects/arcore-measurement/app/src/main/res/layout/photo_frame_layout.xml" value="0.33" />
         <entry key="..\:/Users/idic-04/AndroidStudioProjects/arcore-measurement/app/src/main/res/layout/point_text_layout.xml" value="0.4817708333333333" />
+        <entry key="..\:/Users/idic-04/AndroidStudioProjects/arcore-measurement/app/src/main/res/layout/test.xml" value="0.5" />
         <entry key="..\:/Users/idic-04/AppData/Local/Android/Sdk/platforms/android-29/data/res/layout/simple_spinner_item.xml" value="0.4817708333333333" />
         <entry key="..\:/Users/idic-04/AppData/Local/Android/Sdk/platforms/android-33/data/res/drawable/btn_star.xml" value="0.1" />
       </map>

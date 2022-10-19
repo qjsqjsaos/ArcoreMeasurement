@@ -18,23 +18,23 @@
                 android:layout_height="0dp"
                 android:layout_weight="9.5" />
 
-            <Button
-                android:id="@+id/clearButton"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="0.5"
-                android:background="#18489B"
-                android:fontFamily="sans-serif-thin"
-                android:text="@string/clear"
-                android:textAlignment="center"
-                android:textColor="@android:color/white"
-                android:textSize="14sp" />
+<!--            <Button-->
+<!--                android:id="@+id/clearButton"-->
+<!--                android:layout_width="match_parent"-->
+<!--                android:layout_height="0dp"-->
+<!--                android:layout_weight="0.5"-->
+<!--                android:background="#18489B"-->
+<!--                android:fontFamily="sans-serif-thin"-->
+<!--                android:text="@string/clear"-->
+<!--                android:textAlignment="center"-->
+<!--                android:textColor="@android:color/white"-->
+<!--                android:textSize="14sp" />-->
 
-            <Button
-                android:id="@+id/get_location"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="사진 찍기" />
+<!--            <Button-->
+<!--                android:id="@+id/get_location"-->
+<!--                android:layout_width="match_parent"-->
+<!--                android:layout_height="wrap_content"-->
+<!--                android:text="사진 찍기" />-->
 
 
 

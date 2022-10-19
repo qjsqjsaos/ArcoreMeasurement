@@ -19,12 +19,12 @@ class SooyeolNode(
         if (isTransforming) return /*Prevent infinite loop*/
         val camera = scene?.camera ?: return
         val direction = Vector3.subtract(camera.worldPosition, worldPosition)
-        worldRotation = Quaternion.lookRotation(direction, Vector3.up())
+        worldRotation = Quaternion.lookRotation(direction, Vector3.zero())
 
 
-        val q1: Quaternion = localRotation
-        val q2 = Quaternion.axisAngle(Vector3(0f, 1f, 0f), -2f)
-        localRotation = Quaternion.multiply(q1, q2)
+//        val q1: Quaternion = localRotation
+//        val q2 = Quaternion.axisAngle(Vector3(0f, 1f, 0f), -2f)
+//        localRotation = Quaternion.multiply(q1, q2)
 //        localPosition = localPosition
 
 //        //이거 검토해볼것
