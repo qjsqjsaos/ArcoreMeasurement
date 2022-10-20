@@ -8,6 +8,7 @@ class CustomArFragment: ArFragment() {
 
     override fun getSessionConfiguration(session: Session?): Config {
         val config = Config(session)
+        config.focusMode = Config.FocusMode.AUTO
         config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
         return config
     }
